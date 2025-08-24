@@ -1,16 +1,28 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, GeoPoint } from 'firebase/firestore';
+import { collection, getDocs, GeoPoint, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getDistance } from 'geolib';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useSearchParams } from 'next/navigation';
 
 interface Nurse {
   id: string;
@@ -26,10 +38,13 @@ const SEARCH_RADIUS_KM = 10;
 
 export function FindNurse() {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [nurses, setNurses] = useState<Nurse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [booking, setBooking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const patientId = searchParams.get('id');
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -100,6 +115,52 @@ export function FindNurse() {
 
     fetchAndFilterNurses();
   }, [userLocation, toast]);
+  
+  const handleBooking = async (nurse: Nurse) => {
+    if (!patientId) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Patient ID not found. Cannot book appointment.',
+      });
+      return;
+    }
+    setBooking(true);
+    try {
+      // Fetch patient details
+      const patientRef = doc(db, 'patients', patientId);
+      const patientSnap = await getDoc(patientRef);
+
+      if (!patientSnap.exists()) {
+        throw new Error("Patient record not found.");
+      }
+      const patientName = patientSnap.data().name;
+      
+      const appointmentsRef = collection(db, 'appointments');
+      await addDoc(appointmentsRef, {
+        patientId: patientId,
+        patientName: patientName,
+        nurseId: nurse.id,
+        nurseName: nurse.name,
+        appointmentTime: nurse.nextAvailable,
+        status: 'Booked',
+        createdAt: serverTimestamp(),
+      });
+      toast({
+        title: 'Booking Confirmed!',
+        description: `Your appointment with ${nurse.name} has been successfully booked.`,
+      });
+    } catch (err) {
+      console.error("Error booking appointment: ", err);
+      toast({
+        variant: 'destructive',
+        title: 'Booking Failed',
+        description: 'Could not book the appointment. Please try again.',
+      });
+    } finally {
+      setBooking(false);
+    }
+  };
 
   if (loading && !error) {
     return (
@@ -158,7 +219,27 @@ export function FindNurse() {
                        <Clock className="mr-2 h-4 w-4 text-primary" /> Next Available
                     </p>
                     <p className="text-md pl-6">{nurse.nextAvailable}</p>
-                    <Button size="sm" className="mt-2">Book Now</Button>
+                     <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" className="mt-2" disabled={booking}>
+                          {booking ? <LoaderCircle className="animate-spin" /> : 'Book Now'}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Confirm Appointment</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to book an appointment with <span className="font-semibold text-primary">{nurse.name}</span> for <span className="font-semibold text-primary">{nurse.nextAvailable}</span>?
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleBooking(nurse)}>
+                            Confirm
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                 </div>
               </CardContent>
             </Card>
