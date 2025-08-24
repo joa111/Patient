@@ -7,10 +7,11 @@ import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FindNurse } from '@/components/find-nurse';
 
 interface PatientData {
   id: string;
@@ -195,7 +196,7 @@ export default function ProfilePage() {
 function PatientTabs({ patient }: { patient: PatientData }) {
   return (
     <ShadTabs defaultValue="overview" className="w-full">
-      <TabsList className="grid w-full grid-cols-2 bg-muted">
+      <TabsList className="grid w-full grid-cols-3 bg-muted">
         <TabsTrigger value="overview">
           <User className="mr-2 h-4 w-4" />
           Overview
@@ -203,6 +204,10 @@ function PatientTabs({ patient }: { patient: PatientData }) {
         <TabsTrigger value="records">
           <FileText className="mr-2 h-4 w-4" />
           Medical Records
+        </TabsTrigger>
+         <TabsTrigger value="find-nurse">
+          <Search className="mr-2 h-4 w-4" />
+          Find a Nurse
         </TabsTrigger>
       </TabsList>
       <TabsContent value="overview" className="mt-6">
@@ -238,6 +243,9 @@ function PatientTabs({ patient }: { patient: PatientData }) {
             <p className="text-muted-foreground">No recent appointments found.</p>
           )}
         </div>
+      </TabsContent>
+       <TabsContent value="find-nurse" className="mt-6">
+        <FindNurse />
       </TabsContent>
     </ShadTabs>
   )
