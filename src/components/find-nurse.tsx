@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, GeoPoint, addDoc, serverTimestamp, doc, getDoc, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, GeoPoint, addDoc, doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle } from 'lucide-react';
@@ -163,10 +163,12 @@ export function FindNurse() {
       
       console.log('Notification flow result:', notificationResult);
 
-      toast({
-          title: 'Notification Sent',
-          description: 'A confirmation notification has been dispatched.',
-      });
+      if (notificationResult.success) {
+        toast({
+            title: 'Notification Sent',
+            description: 'A confirmation notification has been dispatched.',
+        });
+      }
 
 
     } catch (err) {
@@ -271,3 +273,5 @@ export function FindNurse() {
     </div>
   );
 }
+
+    
