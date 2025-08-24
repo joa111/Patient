@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Image from 'next/image';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
@@ -78,38 +77,92 @@ function ProfileSkeleton() {
     );
 }
 
-
-export default function ProfilePage() {
+function ProfilePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [patient, setPatient] = useState<PatientData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const patientId = searchParams.get('id');
 
   useEffect(() => {
     async function fetchPatientData() {
+      if (!patientId) {
+        setError("No patient ID provided in the URL.");
+        setLoading(false);
+        // Optionally redirect to login if no ID is present
+        // router.push('/login');
+        return;
+      }
       try {
         setLoading(true);
-        // Using a hardcoded patient ID for now.
-        // In a real app, this would come from the authenticated user session.
-        const patientId = 'MP-12345678';
         const patientRef = doc(db, 'patients', patientId);
         const patientSnap = await getDoc(patientRef);
 
         if (patientSnap.exists()) {
           setPatient({ id: patientSnap.id, ...patientSnap.data() } as PatientData);
         } else {
-          setError(`No patient record found for ID: ${patientId}. Please create it in your Firestore 'patients' collection.`);
+          setError(`No patient record found for ID: ${patientId}.`);
         }
       } catch (err) {
         console.error("Firestore Error:", err);
-        setError("Failed to fetch patient data. Make sure Firestore is set up correctly.");
+        setError("Failed to fetch patient data. Make sure Firestore is set up correctly and security rules allow access.");
       } finally {
         setLoading(false);
       }
     }
 
     fetchPatientData();
-  }, []);
+  }, [patientId, router]);
+
+  const handleLogout = () => {
+    router.push('/login');
+  };
+
+  if (loading) return <ProfileSkeleton />;
+  if (error) return (
+    <Card className="border-destructive/50">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-destructive">
+          <AlertTriangle /> Error
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p>{error}</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          Please check that a patient with the correct ID exists in your Firestore 'patients' collection and that your security rules allow read access.
+        </p>
+        <Button onClick={() => router.push('/login')} className="mt-4">Back to Login</Button>
+      </CardContent>
+    </Card>
+  );
+  if (!patient) return null;
+
+  return (
+    <Card className="overflow-hidden shadow-lg border-primary/10">
+      <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-6">
+        <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-6">
+          <Avatar className="h-24 w-24 border-4 border-white shadow-md">
+            <AvatarImage src={patient.avatarUrl} alt={`Patient ${patient.name}`} data-ai-hint="person portrait" />
+            <AvatarFallback className="text-3xl">{patient.name?.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <div className="mt-4 sm:mt-0">
+            <CardTitle className="font-headline text-3xl text-primary">{patient.name}</CardTitle>
+            <CardDescription className="mt-1">Patient ID: {patient.id}</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-6">
+        <PatientTabs patient={patient} />
+      </CardContent>
+    </Card>
+  );
+}
+
+
+export default function ProfilePage() {
+  const router = useRouter();
 
   const handleLogout = () => {
     router.push('/login');
@@ -131,42 +184,9 @@ export default function ProfilePage() {
       </header>
 
       <main className="container mx-auto p-4 md:p-8">
-        {loading && <ProfileSkeleton />}
-        {error && !loading && (
-          <Card className="border-destructive/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-destructive">
-                <AlertTriangle /> Error
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p>{error}</p>
-              <p className="mt-4 text-sm text-muted-foreground">
-                Please go to your Firebase Console, select your Firestore database, and create a collection named `patients`. Inside, create a document with the ID `MP-12345678` and add the required fields.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-        {patient && !loading && (
-          <Card className="overflow-hidden shadow-lg border-primary/10">
-            <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-6">
-              <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-6">
-                <Avatar className="h-24 w-24 border-4 border-white shadow-md">
-                  <AvatarImage src={patient.avatarUrl} alt={`Patient ${patient.name}`} data-ai-hint="person portrait" />
-                  <AvatarFallback className="text-3xl">{patient.name?.charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="mt-4 sm:mt-0">
-                  <CardTitle className="font-headline text-3xl text-primary">{patient.name}</CardTitle>
-                  <CardDescription className="mt-1">Patient ID: {patient.id}</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-
-            <CardContent className="p-6">
-              <PatientTabs patient={patient} />
-            </CardContent>
-          </Card>
-        )}
+        <Suspense fallback={<ProfileSkeleton />}>
+          <ProfilePageContent />
+        </Suspense>
       </main>
     </div>
   );

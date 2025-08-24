@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { LoaderCircle, KeyRound, Smartphone } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -43,18 +45,11 @@ const otpSchema = z.object({
   otp: z.string().length(6, 'OTP must be 6 digits.'),
 });
 
-function ContactStep({ onContactSubmit }: { onContactSubmit: (values: z.infer<typeof contactSchema>) => void; }) {
-  const [isLoading, setIsLoading] = useState(false);
+function ContactStep({ onContactSubmit, isLoading }: { onContactSubmit: (values: z.infer<typeof contactSchema>) => void; isLoading: boolean; }) {
   const form = useForm<z.infer<typeof contactSchema>>({
     resolver: zodResolver(contactSchema),
     defaultValues: { contact: '' },
   });
-
-  const handleSubmit = async (values: z.infer<typeof contactSchema>) => {
-    setIsLoading(true);
-    await onContactSubmit(values);
-    setIsLoading(false);
-  }
 
   return (
     <>
@@ -66,7 +61,7 @@ function ContactStep({ onContactSubmit }: { onContactSubmit: (values: z.infer<ty
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onContactSubmit)} className="space-y-6">
             <FormField
               control={form.control}
               name="contact"
@@ -96,18 +91,11 @@ function ContactStep({ onContactSubmit }: { onContactSubmit: (values: z.infer<ty
   );
 }
 
-function OtpStep({ contactInfo, onOtpSubmit, onBack }: { contactInfo: string, onOtpSubmit: (values: z.infer<typeof otpSchema>) => void, onBack: () => void }) {
-  const [isLoading, setIsLoading] = useState(false);
+function OtpStep({ contactInfo, onOtpSubmit, onBack, isLoading }: { contactInfo: string, onOtpSubmit: (values: z.infer<typeof otpSchema>) => void, onBack: () => void, isLoading: boolean }) {
   const form = useForm<z.infer<typeof otpSchema>>({
     resolver: zodResolver(otpSchema),
     defaultValues: { otp: '' },
   });
-
-  const handleSubmit = async (values: z.infer<typeof otpSchema>) => {
-    setIsLoading(true);
-    await onOtpSubmit(values);
-    setIsLoading(false);
-  }
 
   return (
      <>
@@ -119,7 +107,7 @@ function OtpStep({ contactInfo, onOtpSubmit, onBack }: { contactInfo: string, on
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onOtpSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
                 name="otp"
@@ -158,28 +146,58 @@ export function AuthForm() {
   const { toast } = useToast();
   const [step, setStep] = useState<'contact' | 'otp'>('contact');
   const [contactInfo, setContactInfo] = useState('');
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   async function handleContactSubmit(values: z.infer<typeof contactSchema>) {
-    // Simulate API call to send OTP
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setContactInfo(values.contact);
-    setStep('otp');
-    toast({
-      title: 'OTP Sent',
-      description: `A 6-digit code has been sent to ${values.contact}. (Use 123456 to login)`,
-    });
+    setIsLoading(true);
+    const contactValue = values.contact;
+    const isEmail = contactValue.includes('@');
+
+    const patientsRef = collection(db, 'patients');
+    const q = query(patientsRef, where(isEmail ? 'email' : 'contact', '==', contactValue));
+
+    try {
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        toast({
+          variant: 'destructive',
+          title: 'User Not Found',
+          description: 'No patient record found with that contact information.',
+        });
+      } else {
+        const patientDoc = querySnapshot.docs[0];
+        setPatientId(patientDoc.id);
+        setContactInfo(values.contact);
+        setStep('otp');
+        toast({
+          title: 'OTP Sent',
+          description: `A 6-digit code has been sent to ${values.contact}. (Use 123456 to login)`,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching patient:", error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to verify patient. Please try again.',
+      });
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleOtpSubmit(values: z.infer<typeof otpSchema>) {
+    setIsLoading(true);
     // Simulate API call to verify OTP
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    if (values.otp === '123456') { // Mock OTP
+    if (values.otp === '123456' && patientId) { // Mock OTP
       toast({
         title: 'Login Successful',
         description: 'Redirecting to your profile...',
       });
-      router.push('/profile');
+      router.push(`/profile?id=${patientId}`);
     } else {
       toast({
         variant: 'destructive',
@@ -187,17 +205,19 @@ export function AuthForm() {
         description: 'The code you entered is incorrect. Please try again.',
       });
     }
+    setIsLoading(false);
   }
 
   return (
     <Card className="w-full shadow-lg border-primary/20">
       {step === 'contact' ? (
-        <ContactStep onContactSubmit={handleContactSubmit} />
+        <ContactStep onContactSubmit={handleContactSubmit} isLoading={isLoading} />
       ) : (
         <OtpStep 
           contactInfo={contactInfo}
           onOtpSubmit={handleOtpSubmit}
           onBack={() => setStep('contact')}
+          isLoading={isLoading}
         />
       )}
     </Card>
