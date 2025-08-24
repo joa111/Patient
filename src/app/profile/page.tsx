@@ -202,8 +202,8 @@ function PatientTabs({ patient }: { patient: PatientData }) {
           Overview
         </TabsTrigger>
         <TabsTrigger value="records">
-          <FileText className="mr-2 h-4 w-4" />
-          Medical Records
+          <Calendar className="mr-2 h-4 w-4" />
+          Past Appointments
         </TabsTrigger>
          <TabsTrigger value="find-nurse">
           <Search className="mr-2 h-4 w-4" />
