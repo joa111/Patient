@@ -2,12 +2,12 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,11 +23,13 @@ interface PatientData {
   allergies: string[];
   primaryPhysician: string;
   avatarUrl: string;
-  appointments: {
-    title: string;
-    date: string;
+}
+
+interface AppointmentData {
+    id: string;
+    nurseName: string;
+    appointmentTime: string;
     status: string;
-  }[];
 }
 
 function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined }) {
@@ -91,8 +93,6 @@ function ProfilePageContent() {
       if (!patientId) {
         setError("No patient ID provided in the URL.");
         setLoading(false);
-        // Optionally redirect to login if no ID is present
-        // router.push('/login');
         return;
       }
       try {
@@ -194,6 +194,35 @@ export default function ProfilePage() {
 }
 
 function PatientTabs({ patient }: { patient: PatientData }) {
+  const [appointments, setAppointments] = useState<AppointmentData[]>([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+
+  useEffect(() => {
+    async function fetchAppointments() {
+      try {
+        setLoadingAppointments(true);
+        const q = query(
+          collection(db, 'appointments'),
+          where('patientId', '==', patient.id),
+          orderBy('createdAt', 'desc')
+        );
+        const querySnapshot = await getDocs(q);
+        const fetchedAppointments = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as AppointmentData[];
+        setAppointments(fetchedAppointments);
+      } catch (error) {
+        console.error("Error fetching appointments:", error);
+        // Handle error, e.g., show a toast message
+      } finally {
+        setLoadingAppointments(false);
+      }
+    }
+
+    fetchAppointments();
+  }, [patient.id]);
+
   return (
     <ShadTabs defaultValue="overview" className="w-full">
       <TabsList className="grid w-full grid-cols-3 bg-muted">
@@ -229,18 +258,34 @@ function PatientTabs({ patient }: { patient: PatientData }) {
         </div>
       </TabsContent>
       <TabsContent value="records" className="mt-6">
-        <h3 className="font-headline text-xl font-semibold mb-4">Recent Appointments</h3>
+        <h3 className="font-headline text-xl font-semibold mb-4">Your Booked Appointments</h3>
         <div className="space-y-4">
-          {patient.appointments?.length > 0 ? (
-            patient.appointments.map((appt, index) => (
-              <div key={index} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                <p className="font-semibold">{appt.title}</p>
-                <p className="text-sm text-muted-foreground">Date: {appt.date}</p>
-                <p className="text-sm mt-2">Status: {appt.status}</p>
+          {loadingAppointments ? (
+             <div className="flex items-center space-x-4">
+                <Skeleton className="h-12 w-12 rounded-full" />
+                <div className="space-y-2">
+                    <Skeleton className="h-4 w-[250px]" />
+                    <Skeleton className="h-4 w-[200px]" />
+                </div>
+            </div>
+          ) : appointments.length > 0 ? (
+            appointments.map((appt) => (
+              <div key={appt.id} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex items-center space-x-4">
+                 <div className="p-3 bg-primary/10 rounded-full">
+                    <Briefcase className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                    <p className="font-semibold text-primary">Appointment with {appt.nurseName}</p>
+                    <p className="text-sm text-muted-foreground flex items-center mt-1">
+                        <Clock className="mr-2 h-4 w-4" />
+                        {appt.appointmentTime}
+                    </p>
+                    <p className="text-sm mt-1">Status: <span className="font-medium text-accent-foreground">{appt.status}</span></p>
+                </div>
               </div>
             ))
           ) : (
-            <p className="text-muted-foreground">No recent appointments found.</p>
+            <p className="text-muted-foreground">You have not booked any appointments yet.</p>
           )}
         </div>
       </TabsContent>
