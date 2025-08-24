@@ -71,7 +71,6 @@ export function AuthForm() {
       title: 'OTP Sent',
       description: `A 6-digit code has been sent to ${values.contact}.`,
     });
-    contactForm.reset();
   }
 
   async function onOtpSubmit(values: z.infer<typeof otpSchema>) {
