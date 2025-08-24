@@ -9,7 +9,7 @@ export default function LoginPage() {
           <div className="rounded-full bg-primary/10 p-4">
             <HeartPulse className="h-16 w-16 text-primary" />
           </div>
-          <h1 className="mt-6 font-headline text-4xl font-bold text-primary">MediPass</h1>
+          <h1 className="mt-6 font-headline text-4xl font-bold text-primary">MegCare</h1>
           <p className="mt-2 text-muted-foreground">Your secure health companion.</p>
         </div>
         <AuthForm />

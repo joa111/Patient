@@ -174,7 +174,7 @@ export default function ProfilePage() {
         <div className="container mx-auto flex h-16 items-center justify-between px-4 md:px-6">
           <div className="flex items-center space-x-2">
             <Heart className="h-7 w-7 text-primary" />
-            <span className="font-headline text-2xl font-bold text-primary">MediPass</span>
+            <span className="font-headline text-2xl font-bold text-primary">MegCare</span>
           </div>
           <Button variant="ghost" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
