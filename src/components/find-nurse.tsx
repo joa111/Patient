@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, GeoPoint, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, GeoPoint, addDoc, serverTimestamp, doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useSearchParams } from 'next/navigation';
+import { sendNotification } from '@/ai/flows/send-notification-flow';
 
 interface Nurse {
   id: string;
@@ -137,19 +138,37 @@ export function FindNurse() {
       const patientName = patientSnap.data().name;
       
       const appointmentsRef = collection(db, 'appointments');
-      await addDoc(appointmentsRef, {
+      const newAppointment = {
         patientId: patientId,
         patientName: patientName,
         nurseId: nurse.id,
         nurseName: nurse.name,
         appointmentTime: nurse.nextAvailable,
         status: 'Booked',
-        createdAt: serverTimestamp(),
-      });
+        notificationStatus: 'Pending',
+        createdAt: Timestamp.now(),
+      };
+      const docRef = await addDoc(appointmentsRef, newAppointment);
+
       toast({
         title: 'Booking Confirmed!',
         description: `Your appointment with ${nurse.name} has been successfully booked.`,
       });
+
+      // Send notification
+      const notificationResult = await sendNotification({
+        appointmentId: docRef.id,
+        type: 'confirmation'
+      });
+      
+      console.log('Notification flow result:', notificationResult);
+
+      toast({
+          title: 'Notification Sent',
+          description: 'A confirmation notification has been dispatched.',
+      });
+
+
     } catch (err) {
       console.error("Error booking appointment: ", err);
       toast({
@@ -234,7 +253,8 @@ export function FindNurse() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleBooking(nurse)}>
+                          <AlertDialogAction onClick={() => handleBooking(nurse)} disabled={booking}>
+                             {booking && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
                             Confirm
                           </AlertDialogAction>
                         </AlertDialogFooter>

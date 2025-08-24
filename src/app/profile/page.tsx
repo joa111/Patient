@@ -7,11 +7,14 @@ import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FindNurse } from '@/components/find-nurse';
+import { sendNotification } from '@/ai/flows/send-notification-flow';
+import { useToast } from '@/hooks/use-toast';
+
 
 interface PatientData {
   id: string;
@@ -30,6 +33,7 @@ interface AppointmentData {
     nurseName: string;
     appointmentTime: string;
     status: string;
+    notificationStatus: string;
 }
 
 function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined }) {
@@ -196,9 +200,13 @@ export default function ProfilePage() {
 function PatientTabs({ patient }: { patient: PatientData }) {
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
   const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [notifying, setNotifying] = useState<string | null>(null);
+  const { toast } = useToast();
+
 
   useEffect(() => {
     async function fetchAppointments() {
+      if (!patient.id) return;
       try {
         setLoadingAppointments(true);
         const q = query(
@@ -222,6 +230,31 @@ function PatientTabs({ patient }: { patient: PatientData }) {
 
     fetchAppointments();
   }, [patient.id]);
+
+  const handleNotify = async (appointmentId: string) => {
+    setNotifying(appointmentId);
+    try {
+      const result = await sendNotification({
+        appointmentId: appointmentId,
+        type: 'en_route',
+      });
+      console.log('Notification flow result:', result);
+      toast({
+        title: 'Notification Sent',
+        description: 'A "nurse en route" notification has been dispatched.',
+      });
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Notification Failed',
+        description: 'Could not send the notification.',
+      });
+    } finally {
+      setNotifying(null);
+    }
+  };
+
 
   return (
     <ShadTabs defaultValue="overview" className="w-full">
@@ -270,18 +303,29 @@ function PatientTabs({ patient }: { patient: PatientData }) {
             </div>
           ) : appointments.length > 0 ? (
             appointments.map((appt) => (
-              <div key={appt.id} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex items-center space-x-4">
-                 <div className="p-3 bg-primary/10 rounded-full">
-                    <Briefcase className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                    <p className="font-semibold text-primary">Appointment with {appt.nurseName}</p>
-                    <p className="text-sm text-muted-foreground flex items-center mt-1">
-                        <Clock className="mr-2 h-4 w-4" />
-                        {appt.appointmentTime}
-                    </p>
-                    <p className="text-sm mt-1">Status: <span className="font-medium text-accent-foreground">{appt.status}</span></p>
-                </div>
+              <div key={appt.id} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between space-x-4">
+                 <div className="flex items-center space-x-4">
+                    <div className="p-3 bg-primary/10 rounded-full">
+                        <Briefcase className="h-6 w-6 text-primary" />
+                    </div>
+                    <div>
+                        <p className="font-semibold text-primary">Appointment with {appt.nurseName}</p>
+                        <p className="text-sm text-muted-foreground flex items-center mt-1">
+                            <Clock className="mr-2 h-4 w-4" />
+                            {appt.appointmentTime}
+                        </p>
+                        <p className="text-sm mt-1">Status: <span className="font-medium text-accent-foreground">{appt.status}</span></p>
+                    </div>
+                 </div>
+                 <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => handleNotify(appt.id)}
+                    disabled={notifying === appt.id}
+                  >
+                    {notifying === appt.id ? <LoaderCircle className="animate-spin" /> : <Bell className="mr-2 h-4 w-4" />}
+                    Notify
+                 </Button>
               </div>
             ))
           ) : (
