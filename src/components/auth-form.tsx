@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { LoaderCircle, KeyRound, Smartphone } from 'lucide-react';
+import { LoaderCircle, KeyRound, Smartphone, User, Calendar } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -45,6 +45,14 @@ const otpSchema = z.object({
   otp: z.string().length(6, 'OTP must be 6 digits.'),
 });
 
+const signUpSchema = z.object({
+    name: z.string().min(2, 'Please enter your full name.'),
+    dob: z.string().refine((val) => /^\d{4}-\d{2}-\d{2}$/.test(val), {
+        message: "Please use YYYY-MM-DD format for date of birth.",
+    }),
+});
+
+
 function ContactStep({ onContactSubmit, isLoading }: { onContactSubmit: (values: z.infer<typeof contactSchema>) => void; isLoading: boolean; }) {
   const form = useForm<z.infer<typeof contactSchema>>({
     resolver: zodResolver(contactSchema),
@@ -54,9 +62,9 @@ function ContactStep({ onContactSubmit, isLoading }: { onContactSubmit: (values:
   return (
     <>
       <CardHeader>
-        <CardTitle className="font-headline">Patient Login</CardTitle>
+        <CardTitle className="font-headline">Patient Login or Sign Up</CardTitle>
         <CardDescription>
-          Enter your email or phone number to receive a one-time password (OTP).
+          Enter your email or phone number to begin. We'll check if you have an account.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -82,7 +90,7 @@ function ContactStep({ onContactSubmit, isLoading }: { onContactSubmit: (values:
             />
             <Button type="submit" className="w-full" disabled={isLoading} style={{ backgroundColor: 'hsl(var(--accent))', color: 'hsl(var(--accent-foreground))' }}>
               {isLoading && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
-              Send OTP
+              Continue
             </Button>
           </form>
         </Form>
@@ -102,7 +110,7 @@ function OtpStep({ contactInfo, onOtpSubmit, onBack, isLoading }: { contactInfo:
         <CardHeader>
           <CardTitle className="font-headline">Enter OTP</CardTitle>
           <CardDescription>
-            Enter the 6-digit code sent to <span className="font-semibold text-primary">{contactInfo}</span>.
+            A 6-digit code was sent to <span className="font-semibold text-primary">{contactInfo}</span>.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -140,11 +148,78 @@ function OtpStep({ contactInfo, onOtpSubmit, onBack, isLoading }: { contactInfo:
   );
 }
 
+function SignUpStep({ contactInfo, onSignUpSubmit, onBack, isLoading }: { contactInfo: string, onSignUpSubmit: (values: z.infer<typeof signUpSchema>) => void, onBack: () => void, isLoading: boolean }) {
+    const form = useForm<z.infer<typeof signUpSchema>>({
+        resolver: zodResolver(signUpSchema),
+        defaultValues: { name: '', dob: '' },
+    });
+
+    return (
+        <>
+            <CardHeader>
+                <CardTitle className="font-headline">Create Your Account</CardTitle>
+                <CardDescription>
+                    We don't have a record for <span className="font-semibold text-primary">{contactInfo}</span>. Please complete your profile.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSignUpSubmit)} className="space-y-6">
+                        <FormField
+                            control={form.control}
+                            name="name"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Full Name</FormLabel>
+                                    <FormControl>
+                                        <div className="relative">
+                                            <Input placeholder="e.g., Jane Doe" {...field} className="pl-10" />
+                                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground">
+                                                <User className="h-5 w-5" />
+                                            </div>
+                                        </div>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormField
+                            control={form.control}
+                            name="dob"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Date of Birth</FormLabel>
+                                    <FormControl>
+                                        <div className="relative">
+                                            <Input placeholder="YYYY-MM-DD" {...field} className="pl-10" />
+                                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-muted-foreground">
+                                                <Calendar className="h-5 w-5" />
+                                            </div>
+                                        </div>
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <Button type="submit" className="w-full" disabled={isLoading}>
+                            {isLoading && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
+                            Create Account & Login
+                        </Button>
+                        <Button variant="link" size="sm" className="w-full" onClick={onBack}>
+                            Back
+                        </Button>
+                    </form>
+                </Form>
+            </CardContent>
+        </>
+    );
+}
+
 
 export function AuthForm() {
   const router = useRouter();
   const { toast } = useToast();
-  const [step, setStep] = useState<'contact' | 'otp'>('contact');
+  const [step, setStep] = useState<'contact' | 'otp' | 'signup'>('contact');
   const [contactInfo, setContactInfo] = useState('');
   const [patientId, setPatientId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -152,6 +227,7 @@ export function AuthForm() {
   async function handleContactSubmit(values: z.infer<typeof contactSchema>) {
     setIsLoading(true);
     const contactValue = values.contact;
+    setContactInfo(contactValue);
     const isEmail = contactValue.includes('@');
 
     const patientsRef = collection(db, 'patients');
@@ -160,15 +236,10 @@ export function AuthForm() {
     try {
       const querySnapshot = await getDocs(q);
       if (querySnapshot.empty) {
-        toast({
-          variant: 'destructive',
-          title: 'User Not Found',
-          description: 'No patient record found with that contact information.',
-        });
+        setStep('signup');
       } else {
         const patientDoc = querySnapshot.docs[0];
         setPatientId(patientDoc.id);
-        setContactInfo(values.contact);
         setStep('otp');
         toast({
           title: 'OTP Sent',
@@ -189,10 +260,9 @@ export function AuthForm() {
 
   async function handleOtpSubmit(values: z.infer<typeof otpSchema>) {
     setIsLoading(true);
-    // Simulate API call to verify OTP
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    if (values.otp === '123456' && patientId) { // Mock OTP
+    if (values.otp === '123456' && patientId) {
       toast({
         title: 'Login Successful',
         description: 'Redirecting to your profile...',
@@ -208,15 +278,67 @@ export function AuthForm() {
     setIsLoading(false);
   }
 
+  async function handleSignUpSubmit(values: z.infer<typeof signUpSchema>) {
+    setIsLoading(true);
+    const isEmail = contactInfo.includes('@');
+
+    try {
+        const newPatientData = {
+            name: values.name,
+            dob: values.dob,
+            email: isEmail ? contactInfo : '',
+            contact: !isEmail ? contactInfo : '',
+            bloodType: '',
+            allergies: [],
+            primaryPhysician: '',
+            avatarUrl: `https://placehold.co/256x256.png`,
+            appointments: [],
+        };
+        
+        const docRef = await addDoc(collection(db, 'patients'), newPatientData);
+
+        toast({
+            title: 'Account Created!',
+            description: 'Redirecting to your new profile...',
+        });
+        
+        router.push(`/profile?id=${docRef.id}`);
+
+    } catch (error) {
+        console.error("Error creating patient:", error);
+        toast({
+            variant: 'destructive',
+            title: 'Sign Up Failed',
+            description: 'Could not create your account. Please try again.',
+        });
+    } finally {
+        setIsLoading(false);
+    }
+  }
+
+  const goBack = () => {
+    setStep('contact');
+    setIsLoading(false);
+  }
+
   return (
     <Card className="w-full shadow-lg border-primary/20">
-      {step === 'contact' ? (
+      {step === 'contact' && (
         <ContactStep onContactSubmit={handleContactSubmit} isLoading={isLoading} />
-      ) : (
+      )}
+      {step === 'otp' && (
         <OtpStep 
           contactInfo={contactInfo}
           onOtpSubmit={handleOtpSubmit}
-          onBack={() => setStep('contact')}
+          onBack={goBack}
+          isLoading={isLoading}
+        />
+      )}
+      {step === 'signup' && (
+        <SignUpStep
+          contactInfo={contactInfo}
+          onSignUpSubmit={handleSignUpSubmit}
+          onBack={goBack}
           isLoading={isLoading}
         />
       )}
