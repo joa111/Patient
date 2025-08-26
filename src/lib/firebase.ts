@@ -17,8 +17,7 @@ const firebaseConfig: FirebaseOptions = {
 };
 
 // Initialize Firebase
-// A check is added to ensure that firebaseConfig.apiKey is present before initializing.
-const app = !getApps().length && firebaseConfig.apiKey ? initializeApp(firebaseConfig) : getApp();
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
