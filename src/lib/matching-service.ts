@@ -5,7 +5,7 @@
 
 import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { ServiceRequestInput, Nurse, Patient, ServiceRequest } from '@/types/service-request';
+import type { ServiceRequestInput, Nurse, Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 
 /**
  * Creates a new service request document in the 'serviceRequests' collection.
@@ -16,6 +16,12 @@ import type { ServiceRequestInput, Nurse, Patient, ServiceRequest } from '@/type
  */
 export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
   if (!patient) throw new Error("Patient is required to create a service request");
+
+  // This is a placeholder for a real backend matching function.
+  // In a real app, you would have a Cloud Function that triggers on create,
+  // finds nurses, and updates this document with the matches.
+  // For this simulation, we'll find some nurses and attach them directly.
+  const mockAvailableNurses = await getMockAvailableNurses(requestInput);
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
@@ -33,7 +39,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     },
     status: 'finding-nurses',
     matching: {
-      availableNurses: [], // Initialize with an empty array
+      availableNurses: mockAvailableNurses, // Initialize with mock nurses for simulation
     },
     payment: {
       platformFee: 5, // Example fee
@@ -53,41 +59,45 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
 
 
 /**
- * Finds available nurses based on the service request criteria.
- * This is a simplified version. A real implementation might use more complex queries or a dedicated search service.
- * @param request - The service request details.
- * @returns A promise that resolves to an array of available nurses.
+ * MOCK FUNCTION: Simulates finding available nurses.
+ * In a real application, this logic would live in a secure backend environment (e.g., Cloud Function).
+ * It queries the nurses collection, which is insecure to do from the client.
+ * We are only doing this here to provide data for the simulation.
+ * @param requestInput 
+ * @returns 
  */
-export async function findAvailableNurses(serviceRequestId: string): Promise<Nurse[]> {
-  // Instead of querying the entire nurses collection,
-  // get available nurses from the service request's availableNurses array
-  const serviceRequestRef = doc(db, 'serviceRequests', serviceRequestId);
-  const serviceRequestDoc = await getDoc(serviceRequestRef);
-  
-  if (!serviceRequestDoc.exists()) {
-    throw new Error('Service request not found');
-  }
-  
-  const serviceRequestData = serviceRequestDoc.data();
-  // The availableNurses array on the serviceRequest contains objects, not just IDs. We extract the IDs.
-  const availableNurseIds = (serviceRequestData.matching?.availableNurses || []).map((n: any) => n.nurseId);
-  
-  if (availableNurseIds.length === 0) {
+async function getMockAvailableNurses(requestInput: ServiceRequestInput): Promise<MatchedNurse[]> {
+  try {
+    const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
+    const snapshot = await getDocs(nursesQuery);
+    
+    if (snapshot.empty) {
+      console.log("No online nurses found for mock matching.");
+      return [];
+    }
+
+    const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+    
+    // Simulate scoring and matching
+    const matchedNurses = nurses.map(nurse => ({
+      nurseId: nurse.id,
+      nurseName: nurse.name,
+      avatarUrl: nurse.avatarUrl,
+      qualification: nurse.qualification,
+      matchScore: Math.floor(Math.random() * (98 - 75 + 1) + 75), // Random score between 75-98
+      estimatedCost: (nurse.rates.specialties.find(s => s.name === requestInput.serviceType)?.rate || nurse.rates.hourlyRate) * requestInput.duration,
+      distance: 5, // Mock distance
+      rating: nurse.stats.rating,
+    }));
+
+    return matchedNurses;
+  } catch (error) {
+    console.error("Error in getMockAvailableNurses (this is expected on client-side):", error);
+    // Return empty array on permission error, because this is insecure from client.
+    // In a real app, this function doesn't exist on the client.
     return [];
   }
-
-  // Fetch individual nurse documents (this uses 'get' permission, not 'list')
-  const nurseDocs = await Promise.all(
-    availableNurseIds.map((nurseId: string) => getDoc(doc(db, 'nurses', nurseId)))
-  );
-
-  const nurses: Nurse[] = nurseDocs
-    .filter(doc => doc.exists())
-    .map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
-  
-  return nurses;
 }
-
 
 
 /**

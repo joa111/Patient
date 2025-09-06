@@ -34,7 +34,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Progress } from '@/components/ui/progress';
 import type { Nurse, Patient, ServiceRequest, MatchedNurse, ServiceRequestInput } from '@/types/service-request';
-import { findAvailableNurses, createServiceRequest, offerServiceToNurse } from '@/lib/matching-service';
+import { createServiceRequest, offerServiceToNurse } from '@/lib/matching-service';
 
 
 const serviceRequestSchema = z.object({
@@ -46,50 +46,6 @@ const serviceRequestSchema = z.object({
     specialRequirements: z.string().optional(),
     isUrgent: z.boolean().default(false),
 });
-
-
-async function calculateMatchScore(
-  nurse: Nurse,
-  request: ServiceRequestInput,
-  patient: Patient
-): Promise<number> {
-  let score = 0;
-
-  if (!nurse.location || !request.patientLocation || !patient.preferences) return 0;
-
-  // Distance factor (40% weight)
-  const distance = getDistance(
-    { latitude: request.patientLocation.latitude, longitude: request.patientLocation.longitude },
-    { latitude: nurse.location.latitude, longitude: nurse.location.longitude }
-  ) / 1000; // convert to km
-  
-  const maxDistance = nurse.availability?.serviceRadius ?? patient.preferences.maxDistance;
-  if (distance <= maxDistance) {
-    score += (40 * (1 - distance / maxDistance));
-  } else {
-    return 0; // Nurse is out of range
-  }
-  
-  // Rating factor (25% weight)
-  if(nurse.stats?.rating) {
-    score += (25 * (nurse.stats.rating / 5));
-  }
-  
-  // Availability factor (20% weight)
-  if (nurse.availability?.isOnline) score += 20;
-  
-  // Specialty match (10% weight)
-  if (nurse.rates?.specialties?.some(s => s.name === request.serviceType)) {
-    score += 10;
-  }
-  
-  // Response time factor (5% weight)
-  if (nurse.stats?.averageResponseTime) {
-    score += (5 * Math.max(0, 1 - nurse.stats.averageResponseTime / 60));
-  }
-  
-  return Math.round(Math.min(100, score));
-}
 
 
 export function FindNurse() {
@@ -129,13 +85,12 @@ export function FindNurse() {
         try {
             setLoading(true);
             const patientRef = doc(db, 'patients', patientId);
-            const unsubscribe = onSnapshot(patientRef, (docSnap) => {
-              if (docSnap.exists()) {
-                setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
-              } else {
-                setError("Patient not found.");
-              }
-            });
+            const patientSnap = await getDoc(patientRef);
+            if (patientSnap.exists()) {
+              setPatient({ id: patientSnap.id, ...patientSnap.data() } as Patient);
+            } else {
+              setError("Patient not found.");
+            }
 
              if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
@@ -153,7 +108,6 @@ export function FindNurse() {
             } else {
                 setError('Geolocation is not supported by your browser.');
             }
-            return () => unsubscribe();
         } catch (err) {
             console.error(err);
             setError("Failed to load initial data.");
@@ -179,9 +133,9 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        // In a real app, a backend function would find nurses and populate the
-        // availableNurses on the serviceRequest.
-        // For this simulation, we'll create the request and then listen for those matches.
+        // Create the service request. In a real app, a backend function would then 
+        // find nurses and populate the availableNurses on the serviceRequest document.
+        // For this simulation, we will listen for those matches to appear.
         
         const docId = await createServiceRequest(patient, fullRequestInput);
         setServiceRequestId(docId);
@@ -230,15 +184,15 @@ export function FindNurse() {
 
         setStep('waiting');
 
-    } catch (err) {
+    } catch (err: any) {
         console.error("Error confirming booking:", err);
-        setError("Could not send your request. Please try again.");
+        setError(`Could not send your request: ${err.message}. Please try again.`);
     } finally {
         setLoading(false);
     }
   };
 
-  // Real-time listener for the service request
+  // Real-time listener for the service request status changes
   useEffect(() => {
     if (!serviceRequestId) return;
 
@@ -258,6 +212,7 @@ export function FindNurse() {
                     title: "Request Declined",
                     description: `Unfortunately, the request was not accepted. Please try another nurse.`,
                 });
+                setAvailableNurses([]); // Clear old list
                 setStep('selecting'); // Go back to selection
             }
         }
