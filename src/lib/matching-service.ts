@@ -1,21 +1,51 @@
-'use server';
 /**
- * @fileOverview Firestore functions for managing service requests.
+ * @fileOverview Firestore functions for managing service requests, running on the client-side.
  */
 
 import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { ServiceRequestInput, Nurse, Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 
+
+/**
+ * A mock function to simulate finding available nurses based on a request.
+ * In a real application, this would be a complex backend process.
+ * This now runs on the client-side.
+ * @param request - The service request details.
+ * @returns A promise that resolves to an array of matched nurses.
+ */
+export async function getMockAvailableNurses(): Promise<MatchedNurse[]> {
+    const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
+    const snapshot = await getDocs(nursesQuery);
+    const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+
+    // Mock scoring and matching logic
+    return nurses.map(nurse => ({
+        nurseId: nurse.id,
+        nurseName: nurse.name,
+        avatarUrl: nurse.avatarUrl,
+        qualification: nurse.qualification,
+        matchScore: Math.floor(Math.random() * (98 - 85 + 1)) + 85, // Random score between 85-98
+        estimatedCost: nurse.rates.hourlyRate * 1.5, // Mock cost
+        distance: Math.round(Math.random() * 10 * 10) / 10, // Random distance 0-10km
+        rating: nurse.stats.rating,
+    })).sort((a, b) => b.matchScore - a.matchScore);
+}
+
+
 /**
  * Creates a new service request document in the 'serviceRequests' collection.
- * The availableNurses array is initialized as empty, assuming a backend process will populate it.
+ * The availableNurses array is populated by a mock function.
+ * This runs on the client.
  * @param patient - The patient creating the request.
  * @param requestInput - The data for the new service request.
  * @returns The ID of the newly created document.
  */
 export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
   if (!patient) throw new Error("Patient is required to create a service request");
+
+  // Since this runs on the client, we can call our mock search function directly
+  const availableNurses = await getMockAvailableNurses();
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
@@ -33,7 +63,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     },
     status: 'finding-nurses',
     matching: {
-      availableNurses: [], // Initialize with an empty array. A backend process will populate this.
+      availableNurses: availableNurses,
     },
     payment: {
       platformFee: 5, // Example fee
@@ -54,6 +84,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
 
 /**
  * Updates a service request to send an offer to a specific nurse.
+ * This runs on the client.
  * @param requestId - The ID of the service request.
  * @param nurseId - The ID of the nurse to receive the offer.
  * @param estimatedCost - The estimated cost of the service.
@@ -71,8 +102,6 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
     updatedAt: Timestamp.now(),
   });
   
-  // Here you would trigger the actual notification to the nurse
-  // e.g., using a Genkit flow: await sendNotification({ type: 'new_offer', userId: nurseId, requestId });
   console.log(`Offer sent to nurse ${nurseId} for request ${requestId}`);
 }
 
@@ -98,17 +127,11 @@ export async function handleNurseResponse(requestId: string, accepted: boolean):
       status: 'confirmed',
       updatedAt: Timestamp.now(),
     });
-    // Notify patient of confirmation
-    // e.g., await sendNotification({ type: 'request_confirmed', userId: requestData.patientId, requestId });
   } else {
-    // If declined, logic to offer to the next-best nurse could be implemented here.
-    // For now, we'll just mark it as cancelled.
     await updateDoc(requestRef, {
       status: 'declined', 
       'matching.selectedNurseId': '', 
       updatedAt: Timestamp.now(),
     });
-     // Notify patient of decline
-    // e.g., await sendNotification({ type: 'request_declined', userId: requestData.patientId, requestId });
   }
 }

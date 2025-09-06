@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { GeoPoint, Timestamp, onSnapshot, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
-import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
+import { LoaderCircle, MapPin, Briefcase, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { getDistance } from 'geolib';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -133,10 +132,8 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        // Create the service request. In a real app, a backend function would then 
-        // find nurses and populate the availableNurses on the serviceRequest document.
-        // For this simulation, we will listen for those matches to appear.
-        
+        // Create the service request using the client-side function.
+        // The function itself now handles getting the mock nurses.
         const docId = await createServiceRequest(patient, fullRequestInput);
         setServiceRequestId(docId);
         
@@ -152,6 +149,10 @@ export function FindNurse() {
                      unsubscribe(); // Stop listening once we have the nurses.
                 }
             }
+        }, (err) => {
+            console.error("Error listening to service request:", err);
+            setError(`Failed to retrieve nurse matches: ${err.message}.`);
+            setLoading(false);
         });
 
       } catch (err: any) {
