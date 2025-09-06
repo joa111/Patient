@@ -137,5 +137,3 @@ export async function handleNurseResponse(requestId: string, accepted: boolean):
     // e.g., await sendNotification({ type: 'request_declined', userId: requestData.patientId, requestId });
   }
 }
-
-    

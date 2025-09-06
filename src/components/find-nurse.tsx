@@ -477,5 +477,3 @@ export function FindNurse() {
     </div>
   );
 }
-
-    
