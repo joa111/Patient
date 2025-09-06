@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense, useMemo } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { onAuthStateChanged, User as AuthUser } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -88,7 +89,7 @@ function ProfilePageContent() {
         setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
         setError(null);
       } else {
-        setError(`No patient record found for ID: ${patientId}.`);
+        setError(`No patient record found for ID: ${patientId}. Your profile might be creating.`);
         setPatient(null);
       }
       setLoading(false);
@@ -100,6 +101,7 @@ function ProfilePageContent() {
 
     return () => unsubscribe();
   }, [patientId]);
+  
 
   if (loading) return <ProfileSkeleton />;
   if (error) return (
@@ -118,7 +120,7 @@ function ProfilePageContent() {
       </CardContent>
     </Card>
   );
-  if (!patient) return null;
+  if (!patient) return <ProfileSkeleton />;
 
   return (
     <Card className="overflow-hidden shadow-xl border-primary/10">
@@ -145,10 +147,36 @@ function ProfilePageContent() {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleLogout = () => {
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setAuthUser(user);
+      } else {
+        router.push('/login');
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [router]);
+
+
+  const handleLogout = async () => {
+    await auth.signOut();
     router.push('/login');
   };
+
+  if (loading) {
+    return (
+       <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
+        <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">Verifying session...</p>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -252,20 +280,18 @@ function useServiceRequests(patientId: string) {
 function DashboardTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
 
-  const { upcoming, active } = useMemo(() => {
-      const now = new Date();
-      return serviceRequests.reduce((acc, req) => {
-          if (!req.serviceDetails.scheduledDateTime) return acc;
-          const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
-          
-          if ((req.status === 'confirmed') && reqDate > now) {
-              acc.upcoming.push(req);
-          } else if (req.status === 'in-progress' || req.status === 'finding-nurses' || req.status === 'pending-response') {
-              acc.active.push(req);
-          }
-          return acc;
-      }, { upcoming: [] as ServiceRequest[], active: [] as ServiceRequest[] });
-  }, [serviceRequests]);
+  const { upcoming, active } = serviceRequests.reduce((acc, req) => {
+    if (!req.serviceDetails.scheduledDateTime) return acc;
+    const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
+    const now = new Date();
+    
+    if ((req.status === 'confirmed') && reqDate > now) {
+        acc.upcoming.push(req);
+    } else if (['finding-nurses', 'pending-response', 'in-progress'].includes(req.status)) {
+        acc.active.push(req);
+    }
+    return acc;
+  }, { upcoming: [] as ServiceRequest[], active: [] as ServiceRequest[] });
 
 
   if (loading) {
@@ -311,14 +337,10 @@ function DashboardTab({ patientId }: { patientId: string }) {
 function HistoryTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
 
-  const pastRequests = useMemo(() => {
-    const now = new Date();
-    return serviceRequests.filter(req => {
-       if (!req.serviceDetails.scheduledDateTime) return false;
-      const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
-      return ['completed', 'cancelled', 'declined'].includes(req.status) || (reqDate < now && req.status !== 'confirmed');
-    });
-  }, [serviceRequests]);
+  const pastRequests = serviceRequests.filter(req => {
+     if (!req.serviceDetails.scheduledDateTime) return false;
+    return ['completed', 'cancelled', 'declined'].includes(req.status);
+  });
 
   if (loading) {
     return (
@@ -342,7 +364,6 @@ function HistoryTab({ patientId }: { patientId: string }) {
 function RequestCard({ request }: { request: ServiceRequest }) {
     const { toast } = useToast();
 
-    // The nurse name can come from different places depending on status
     const nurseName = request.matching.selectedNurseId 
         ? request.matching.availableNurses.find(n => n.nurseId === request.matching.selectedNurseId)?.nurseName
         : "Finding Nurse...";
@@ -352,7 +373,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
         const result = await sendNotification({ 
             requestId: request.id, 
             type: type,
-            userId: request.patientId, // Notify the patient
+            userId: request.patientId,
         });
         if (result.success) {
             toast({ title: 'Notification Sent!', description: result.message });
@@ -361,6 +382,8 @@ function RequestCard({ request }: { request: ServiceRequest }) {
         }
     };
     
+    const scheduledTime = request.serviceDetails.scheduledDateTime ? format((request.serviceDetails.scheduledDateTime as Timestamp).toDate(), "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
+
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
@@ -368,7 +391,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
                     <span className="text-xl">{request.serviceDetails.type}</span>
                     <span className={`text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground`}>{request.status}</span>
                 </CardTitle>
-                <CardDescription>{format((request.serviceDetails.scheduledDateTime as Timestamp).toDate(), "EEEE, MMMM do, yyyy 'at' p")}</CardDescription>
+                <CardDescription>{scheduledTime}</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="flex items-center text-muted-foreground mt-2">
@@ -394,5 +417,3 @@ function RequestCard({ request }: { request: ServiceRequest }) {
         </Card>
     )
 }
-
-    
