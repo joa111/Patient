@@ -319,7 +319,7 @@ export function FindNurse() {
                             <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
                                 <Avatar className="h-16 w-16 border-2 border-primary/20">
                                     <AvatarImage src={nurse.avatarUrl} alt={nurse.nurseName} data-ai-hint="person nurse" />
-                                    <AvatarFallback>{nurse.nurseName.charAt(0)}</AvatarFallback>
+                                    <AvatarFallback>{nurse.nurseName ? nurse.nurseName.charAt(0) : ''}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-grow">
                                     <p className="font-bold text-lg text-primary">{nurse.nurseName}</p>
@@ -356,7 +356,7 @@ export function FindNurse() {
                         <div className="flex items-center space-x-4">
                              <Avatar className="h-20 w-20 border-2 border-primary">
                                 <AvatarImage src={selectedNurse.avatarUrl} alt={selectedNurse.nurseName} />
-                                <AvatarFallback>{selectedNurse.nurseName.charAt(0)}</AvatarFallback>
+                                <AvatarFallback>{selectedNurse.nurseName ? selectedNurse.nurseName.charAt(0) : ''}</AvatarFallback>
                             </Avatar>
                             <div>
                                 <CardTitle className="text-2xl text-primary">{selectedNurse.nurseName}</CardTitle>
