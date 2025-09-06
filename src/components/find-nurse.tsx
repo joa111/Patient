@@ -32,7 +32,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Progress } from '@/components/ui/progress';
-import type { Nurse, Patient, ServiceRequest, MatchedNurse, ServiceRequestInput } from '@/types/service-request';
+import type { Patient, ServiceRequest, MatchedNurse, ServiceRequestInput } from '@/types/service-request';
 import { createServiceRequest, offerServiceToNurse } from '@/lib/matching-service';
 
 
@@ -132,13 +132,9 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        // Create the service request using the client-side function.
-        // The function itself now handles getting the mock nurses.
         const docId = await createServiceRequest(patient, fullRequestInput);
         setServiceRequestId(docId);
         
-        // Now, we'll listen for the results to appear on the service request document.
-        // This simulates the asynchronous nature of a backend matching service.
         const requestRef = doc(db, 'serviceRequests', docId);
         const unsubscribe = onSnapshot(requestRef, (docSnap) => {
             if (docSnap.exists()) {
@@ -146,7 +142,7 @@ export function FindNurse() {
                 if (reqData.matching.availableNurses && reqData.matching.availableNurses.length > 0) {
                      setAvailableNurses(reqData.matching.availableNurses);
                      setLoading(false);
-                     unsubscribe(); // Stop listening once we have the nurses.
+                     unsubscribe(); 
                 }
             }
         }, (err) => {
@@ -158,7 +154,7 @@ export function FindNurse() {
       } catch (err: any) {
         console.error("Error finding nurses:", err);
         setError(`Failed to find matching nurses: ${err.message}. Please try again.`);
-        setStep('request'); // Revert to request step on error
+        setStep('request'); 
         setLoading(false);
       }
   };
@@ -177,10 +173,10 @@ export function FindNurse() {
     try {
         await offerServiceToNurse(serviceRequestId, selectedNurse.nurseId, selectedNurse.estimatedCost);
 
-        console.log(`Sending offer to ${selectedNurse.nurseName}...`);
+        console.log(`Sending offer to ${selectedNurse.fullName}...`);
         toast({
             title: "Offer Sent!",
-            description: `We've sent your request to ${selectedNurse.nurseName}. You will be notified of their response.`,
+            description: `We've sent your request to ${selectedNurse.fullName}. You will be notified of their response.`,
         });
 
         setStep('waiting');
@@ -203,7 +199,7 @@ export function FindNurse() {
             if (data.status === 'confirmed') {
                 toast({
                     title: "Appointment Confirmed!",
-                    description: `${selectedNurse?.nurseName || 'The nurse'} has accepted your request.`,
+                    description: `${selectedNurse?.fullName || 'The nurse'} has accepted your request.`,
                     variant: 'default',
                 });
                 setStep('confirmed');
@@ -318,12 +314,12 @@ export function FindNurse() {
                         <Card key={nurse.nurseId} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleSelectNurse(nurse)}>
                             <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
                                 <Avatar className="h-16 w-16 border-2 border-primary/20">
-                                    <AvatarImage src={nurse.avatarUrl} alt={nurse.nurseName} data-ai-hint="person nurse" />
-                                    <AvatarFallback>{nurse.nurseName ? nurse.nurseName.charAt(0) : ''}</AvatarFallback>
+                                    <AvatarImage src={nurse.avatarUrl} alt={nurse.fullName} data-ai-hint="person nurse" />
+                                    <AvatarFallback>{nurse.fullName ? nurse.fullName.charAt(0) : 'N'}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-grow">
-                                    <p className="font-bold text-lg text-primary">{nurse.nurseName}</p>
-                                    <p className="flex items-center text-sm text-muted-foreground"><Briefcase className="mr-2 h-4 w-4" /> {nurse.qualification}</p>
+                                    <p className="font-bold text-lg text-primary">{nurse.fullName}</p>
+                                    <p className="flex items-center text-sm text-muted-foreground"><Briefcase className="mr-2 h-4 w-4" /> {nurse.district}</p>
                                     <div className="flex items-center text-sm text-muted-foreground mt-1 space-x-4">
                                         <p className="flex items-center"><MapPin className="mr-2 h-4 w-4" /> {nurse.distance} km away</p>
                                         <p className="flex items-center"><Star className="mr-2 h-4 w-4 text-amber-400" /> {nurse.rating} / 5</p>
@@ -355,12 +351,12 @@ export function FindNurse() {
                     <CardHeader>
                         <div className="flex items-center space-x-4">
                              <Avatar className="h-20 w-20 border-2 border-primary">
-                                <AvatarImage src={selectedNurse.avatarUrl} alt={selectedNurse.nurseName} />
-                                <AvatarFallback>{selectedNurse.nurseName ? selectedNurse.nurseName.charAt(0) : ''}</AvatarFallback>
+                                <AvatarImage src={selectedNurse.avatarUrl} alt={selectedNurse.fullName} />
+                                <AvatarFallback>{selectedNurse.fullName ? selectedNurse.fullName.charAt(0) : 'N'}</AvatarFallback>
                             </Avatar>
                             <div>
-                                <CardTitle className="text-2xl text-primary">{selectedNurse.nurseName}</CardTitle>
-                                <CardDescription>{selectedNurse.qualification}</CardDescription>
+                                <CardTitle className="text-2xl text-primary">{selectedNurse.fullName}</CardTitle>
+                                <CardDescription>{selectedNurse.district}</CardDescription>
                             </div>
                         </div>
                     </CardHeader>
@@ -392,7 +388,7 @@ export function FindNurse() {
             <div className="text-center py-12 flex flex-col items-center">
                 <LoaderCircle className="h-12 w-12 text-primary animate-spin mx-auto"/>
                 <h3 className="font-headline text-2xl font-semibold mt-6">Waiting for Confirmation</h3>
-                <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {selectedNurse?.nurseName}. We'll notify you here as soon as they respond.</p>
+                <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {selectedNurse?.fullName}. We'll notify you here as soon as they respond.</p>
                 <Progress value={80} className="w-full max-w-sm mx-auto mt-8" />
                  <p className="text-sm text-muted-foreground mt-2">The request will expire in 15 minutes.</p>
             </div>
@@ -403,7 +399,7 @@ export function FindNurse() {
              <div className="text-center py-12 flex flex-col items-center">
                 <CheckCircle className="h-16 w-16 text-green-500 mx-auto"/>
                 <h3 className="font-headline text-3xl font-semibold mt-6">Booking Confirmed!</h3>
-                <p className="text-muted-foreground mt-2">{selectedNurse?.nurseName} is confirmed for your appointment.</p>
+                <p className="text-muted-foreground mt-2">{selectedNurse?.fullName} is confirmed for your appointment.</p>
                 <Button className="mt-8" onClick={() => window.location.reload()}>
                     View in Dashboard
                 </Button>

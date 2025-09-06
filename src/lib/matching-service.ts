@@ -21,9 +21,9 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
     // Mock scoring and matching logic
     return nurses.map(nurse => ({
         nurseId: nurse.id,
-        nurseName: nurse.name,
-        avatarUrl: nurse.avatarUrl,
-        qualification: nurse.qualification,
+        fullName: nurse.fullName,
+        avatarUrl: `https://placehold.co/256x256.png`, // Placeholder, assuming no avatar in nurse doc
+        district: nurse.district,
         matchScore: Math.floor(Math.random() * (98 - 85 + 1)) + 85, // Random score between 85-98
         estimatedCost: (nurse.rates?.hourlyRate || 0) * 1.5,
         distance: Math.round(Math.random() * 10 * 10) / 10, // Random distance 0-10km

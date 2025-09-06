@@ -19,24 +19,30 @@ export interface Patient {
 
 export interface Nurse {
   id: string;
-  name: string;
-  qualification: string;
-  avatarUrl: string;
-  location: GeoPoint;
-  nextAvailable: string;
+  uid: string;
+  fullName: string;
+  email: string;
+  district: string;
+  licenseNumber: string;
+  licenseState: string;
+  licenseExpiryDate: string;
+  services: string[];
+  profileStatus: 'pending_verification' | 'verified' | 'rejected';
+  createdAt: Timestamp;
   availability: {
     isOnline: boolean;
     schedule: Array<{
-      day: string; // 'monday', 'tuesday', etc.
+      day: string;
       slots: Array<{ start: string; end: string }>;
     }>;
     serviceRadius: number; // km
+    lastSeen: Timestamp;
   };
   rates: {
     hourlyRate: number;
     emergencyRate?: number;
     specialties: Array<{
-      name: string; // 'wound-care', 'injection', 'general'
+      name: string;
       rate: number;
     }>;
   };
@@ -47,6 +53,7 @@ export interface Nurse {
     completionRate: number;
   };
 }
+
 
 export interface ServiceRequest {
   id: string;
@@ -65,14 +72,7 @@ export interface ServiceRequest {
   };
   status: 'creating' | 'finding-nurses' | 'pending-response' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'declined';
   matching: {
-    availableNurses: Array<{
-      nurseId: string,
-      nurseName: string,
-      matchScore: number,
-      estimatedCost: number,
-      distance: number,
-      rating: number
-    }>;
+    availableNurses: MatchedNurse[];
     selectedNurseId?: string;
     offerSentAt?: Timestamp;
     responseDeadline?: Timestamp;
@@ -102,10 +102,10 @@ export interface ServiceRequestInput {
 // Interface for a nurse after being matched
 export interface MatchedNurse {
     nurseId: string;
-    nurseName: string;
-    avatarUrl: string;
-    qualification: string;
-ma    matchScore: number;
+    fullName: string;
+    avatarUrl?: string;
+    district: string;
+    matchScore: number;
     estimatedCost: number;
     distance: number;
     rating: number;

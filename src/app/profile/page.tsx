@@ -15,7 +15,7 @@ import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/componen
 import { FindNurse } from '@/components/find-nurse';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import type { Patient, ServiceRequest } from '@/types/service-request';
+import type { Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 import { sendNotification } from '@/ai/flows/send-notification-flow';
 
 
@@ -365,7 +365,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
     const { toast } = useToast();
 
     const nurseName = request.matching.selectedNurseId 
-        ? request.matching.availableNurses.find(n => n.nurseId === request.matching.selectedNurseId)?.nurseName
+        ? request.matching.availableNurses.find(n => n.nurseId === request.matching.selectedNurseId)?.fullName
         : "Finding Nurse...";
     
     const onNotify = async (type: 'confirmation' | 'en_route') => {
