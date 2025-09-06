@@ -15,20 +15,9 @@ import { FindNurse } from '@/components/find-nurse';
 import { sendNotification } from '@/ai/flows/send-notification-flow';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import type { Patient, ServiceRequest } from '@/types/service-request';
 
-
-interface PatientData {
-  id: string;
-  name: string;
-  dob: string;
-  contact: string;
-  email: string;
-  bloodType: string;
-  allergies: string[];
-  primaryPhysician: string;
-  avatarUrl: string;
-}
-
+// This is the old AppointmentData interface, kept for backward compatibility
 interface AppointmentData {
     id: string;
     nurseName: string;
@@ -38,14 +27,15 @@ interface AppointmentData {
     createdAt: Timestamp;
 }
 
-function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined }) {
+function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined | string[] }) {
   if (!value) return null;
+  const displayValue = Array.isArray(value) ? value.join(', ') : value;
   return (
     <div className="flex items-start space-x-4">
       <Icon className="h-5 w-5 mt-1 text-primary" />
       <div>
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-        <p className="text-md font-semibold">{value}</p>
+        <p className="text-md font-semibold">{displayValue}</p>
       </div>
     </div>
   );
@@ -89,7 +79,7 @@ function ProfileSkeleton() {
 function ProfilePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [patient, setPatient] = useState<PatientData | null>(null);
+  const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const patientId = searchParams.get('id');
@@ -107,7 +97,7 @@ function ProfilePageContent() {
         const patientSnap = await getDoc(patientRef);
 
         if (patientSnap.exists()) {
-          setPatient({ id: patientSnap.id, ...patientSnap.data() } as PatientData);
+          setPatient({ id: patientSnap.id, ...patientSnap.data() } as Patient);
         } else {
           setError(`No patient record found for ID: ${patientId}.`);
         }
@@ -199,34 +189,34 @@ export default function ProfilePage() {
   );
 }
 
-function PatientTabs({ patient }: { patient: PatientData }) {
-  const [appointments, setAppointments] = useState<AppointmentData[]>([]);
-  const [loadingAppointments, setLoadingAppointments] = useState(true);
+function PatientTabs({ patient }: { patient: Patient }) {
+  const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
   
   useEffect(() => {
-    async function fetchAppointments() {
+    async function fetchServiceRequests() {
       if (!patient.id) return;
       try {
-        setLoadingAppointments(true);
+        setLoadingRequests(true);
         const q = query(
-          collection(db, 'appointments'),
+          collection(db, 'serviceRequests'),
           where('patientId', '==', patient.id),
           orderBy('createdAt', 'desc')
         );
         const querySnapshot = await getDocs(q);
-        const fetchedAppointments = querySnapshot.docs.map(doc => ({
+        const fetchedRequests = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
-        })) as AppointmentData[];
-        setAppointments(fetchedAppointments);
+        })) as ServiceRequest[];
+        setServiceRequests(fetchedRequests);
       } catch (error) {
-        console.error("Error fetching appointments:", error);
+        console.error("Error fetching service requests:", error);
       } finally {
-        setLoadingAppointments(false);
+        setLoadingRequests(false);
       }
     }
 
-    fetchAppointments();
+    fetchServiceRequests();
   }, [patient.id]);
 
   return (
@@ -234,11 +224,11 @@ function PatientTabs({ patient }: { patient: PatientData }) {
       <TabsList className="grid w-full grid-cols-4 bg-muted">
         <TabsTrigger value="dashboard"><LayoutDashboard className="mr-2 h-4 w-4" />Dashboard</TabsTrigger>
         <TabsTrigger value="overview"><User className="mr-2 h-4 w-4" />Overview</TabsTrigger>
-        <TabsTrigger value="appointments"><Calendar className="mr-2 h-4 w-4" />Appointments</TabsTrigger>
-        <TabsTrigger value="find-nurse"><Search className="mr-2 h-4 w-4" />Find a Nurse</TabsTrigger>
+        <TabsTrigger value="appointments"><Calendar className="mr-2 h-4 w-4" />History</TabsTrigger>
+        <TabsTrigger value="find-nurse"><Search className="mr-2 h-4 w-4" />New Request</TabsTrigger>
       </TabsList>
       <TabsContent value="dashboard" className="mt-6">
-        <Dashboard appointments={appointments} loading={loadingAppointments} />
+        <Dashboard serviceRequests={serviceRequests} loading={loadingRequests} />
       </TabsContent>
       <TabsContent value="overview" className="mt-6">
         <div className="grid gap-8 md:grid-cols-2">
@@ -253,13 +243,13 @@ function PatientTabs({ patient }: { patient: PatientData }) {
             <h3 className="font-headline text-xl font-semibold">Medical Details</h3>
             <Separator />
             <InfoItem icon={Droplets} label="Blood Type" value={patient.bloodType} />
-            <InfoItem icon={ShieldAlert} label="Allergies" value={patient.allergies?.join(', ')} />
+            <InfoItem icon={ShieldAlert} label="Allergies" value={patient.allergies} />
             <InfoItem icon={User} label="Primary Physician" value={patient.primaryPhysician} />
           </div>
         </div>
       </TabsContent>
       <TabsContent value="appointments" className="mt-6">
-        <AppointmentsList appointments={appointments} loading={loadingAppointments} />
+        <RequestsList serviceRequests={serviceRequests} loading={loadingRequests} />
       </TabsContent>
        <TabsContent value="find-nurse" className="mt-6">
         <FindNurse />
@@ -268,39 +258,12 @@ function PatientTabs({ patient }: { patient: PatientData }) {
   )
 }
 
-function AppointmentsList({ appointments, loading }: { appointments: AppointmentData[], loading: boolean }) {
-  const [notifying, setNotifying] = useState<string | null>(null);
-  const { toast } = useToast();
-
-  const handleNotify = async (appointmentId: string) => {
-    setNotifying(appointmentId);
-    try {
-      const result = await sendNotification({
-        appointmentId: appointmentId,
-        type: 'en_route',
-      });
-      console.log('Notification flow result:', result);
-      toast({
-        title: 'Notification Sent',
-        description: 'A "nurse en route" notification has been dispatched.',
-      });
-    } catch (error) {
-      console.error('Error sending notification:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Notification Failed',
-        description: 'Could not send the notification.',
-      });
-    } finally {
-      setNotifying(null);
-    }
-  };
-
+function RequestsList({ serviceRequests, loading }: { serviceRequests: ServiceRequest[], loading: boolean }) {
   if (loading) {
     return (
       <div className="space-y-4">
         {[...Array(2)].map((_, i) => (
-          <div key={i} className="flex items-center space-x-4">
+          <div key={i} className="flex items-center space-x-4 p-4 border rounded-lg">
               <Skeleton className="h-12 w-12 rounded-full" />
               <div className="space-y-2">
                   <Skeleton className="h-4 w-[250px]" />
@@ -312,52 +275,43 @@ function AppointmentsList({ appointments, loading }: { appointments: Appointment
     )
   }
 
-  if (appointments.length === 0) {
-    return <p className="text-muted-foreground">You have not booked any appointments yet.</p>
+  if (serviceRequests.length === 0) {
+    return <p className="text-muted-foreground">You have not made any service requests yet.</p>
   }
   
   return (
     <div className="space-y-4">
-      {appointments.map((appt) => (
-        <div key={appt.id} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between space-x-4">
+      {serviceRequests.map((req) => (
+        <div key={req.id} className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex items-center justify-between space-x-4">
            <div className="flex items-center space-x-4">
               <div className="p-3 bg-primary/10 rounded-full">
                   <Briefcase className="h-6 w-6 text-primary" />
               </div>
               <div>
-                  <p className="font-semibold text-primary">Appointment with {appt.nurseName}</p>
+                  <p className="font-semibold text-primary">Service: {req.serviceDetails.type}</p>
                   <p className="text-sm text-muted-foreground flex items-center mt-1">
                       <Clock className="mr-2 h-4 w-4" />
-                      {appt.appointmentTime}
+                      {format(req.serviceDetails.scheduledDateTime.toDate(), "PPpp")}
                   </p>
-                  <p className="text-sm mt-1">Status: <span className="font-medium text-accent-foreground">{appt.status}</span></p>
+                  <p className="text-sm mt-1">Status: <span className="font-medium text-accent-foreground">{req.status}</span></p>
               </div>
            </div>
-           <Button 
-              size="sm" 
-              variant="outline" 
-              onClick={() => handleNotify(appt.id)}
-              disabled={notifying === appt.id}
-            >
-              {notifying === appt.id ? <LoaderCircle className="animate-spin" /> : <Bell className="mr-2 h-4 w-4" />}
-              Notify
-           </Button>
         </div>
       ))}
     </div>
   )
 }
 
-function Dashboard({ appointments, loading }: { appointments: AppointmentData[], loading: boolean }) {
-  const [upcoming, past] = appointments.reduce((acc, appt) => {
-    const apptDate = appt.createdAt.toDate(); // Note: This uses creation date. For real scenario, use appointment date.
-    if (apptDate >= new Date()) {
-      acc[0].push(appt);
+function Dashboard({ serviceRequests, loading }: { serviceRequests: ServiceRequest[], loading: boolean }) {
+  const [upcoming, past] = serviceRequests.reduce((acc, req) => {
+    const reqDate = req.serviceDetails.scheduledDateTime.toDate();
+    if (req.status === 'completed' || req.status === 'cancelled' || reqDate < new Date()) {
+      acc[1].push(req);
     } else {
-      acc[1].push(appt);
+      acc[0].push(req);
     }
     return acc;
-  }, [[], []] as [AppointmentData[], AppointmentData[]]);
+  }, [[], []] as [ServiceRequest[], ServiceRequest[]]);
 
   if (loading) {
     return (
@@ -365,14 +319,8 @@ function Dashboard({ appointments, loading }: { appointments: AppointmentData[],
         <div>
           <Skeleton className="h-8 w-48 mb-4" />
           <div className="space-y-4">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        </div>
-        <div>
-          <Skeleton className="h-8 w-48 mb-4" />
-          <div className="space-y-4">
-            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full" />
           </div>
         </div>
       </div>
@@ -382,11 +330,11 @@ function Dashboard({ appointments, loading }: { appointments: AppointmentData[],
   return (
     <div className="space-y-8">
       <div>
-        <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Upcoming Appointments</h3>
+        <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Active/Upcoming Requests</h3>
         {upcoming.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
-            {upcoming.map(appt => (
-              <AppointmentCard key={appt.id} appointment={appt} />
+            {upcoming.map(req => (
+              <RequestCard key={req.id} request={req} />
             ))}
           </div>
         ) : (
@@ -397,11 +345,11 @@ function Dashboard({ appointments, loading }: { appointments: AppointmentData[],
       <Separator />
 
       <div>
-        <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Past Appointments</h3>
+        <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Past Requests</h3>
         {past.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2">
-            {past.map(appt => (
-              <AppointmentCard key={appt.id} appointment={appt} />
+            {past.map(req => (
+              <RequestCard key={req.id} request={req} />
             ))}
           </div>
         ) : (
@@ -412,24 +360,27 @@ function Dashboard({ appointments, loading }: { appointments: AppointmentData[],
   )
 }
 
-function AppointmentCard({ appointment }: { appointment: AppointmentData }) {
+function RequestCard({ request }: { request: ServiceRequest }) {
+    const nurseName = request.matching.selectedNurseId ? `Nurse ${request.matching.availableNurses.find(n=>n.nurseId === request.matching.selectedNurseId)?.nurseName}`: "Finding Nurse";
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span className="text-xl">{appointment.nurseName}</span>
-          <span className="text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground">{appointment.status}</span>
+          <span className="text-xl">{request.serviceDetails.type}</span>
+          <span className="text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground">{request.status}</span>
         </CardTitle>
-        <CardDescription>{format(appointment.createdAt.toDate(), "EEEE, MMMM do, yyyy")}</CardDescription>
+        <CardDescription>{format(request.serviceDetails.scheduledDateTime.toDate(), "EEEE, MMMM do, yyyy")}</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center text-muted-foreground">
+         <div className="flex items-center text-muted-foreground">
           <Clock className="mr-2 h-4 w-4" />
-          <span>{appointment.appointmentTime}</span>
+          <span>{format(request.serviceDetails.scheduledDateTime.toDate(), "p")}</span>
+        </div>
+         <div className="flex items-center text-muted-foreground mt-2">
+          <User className="mr-2 h-4 w-4" />
+          <span>{nurseName}</span>
         </div>
       </CardContent>
     </Card>
   )
 }
-
-    
