@@ -3,7 +3,7 @@
  * @fileOverview Firestore functions for managing service requests.
  */
 
-import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { ServiceRequestInput, Nurse, Patient, ServiceRequest } from '@/types/service-request';
 
@@ -63,18 +63,36 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
  * @param request - The service request details.
  * @returns A promise that resolves to an array of available nurses.
  */
-export async function findAvailableNurses(request: ServiceRequestInput): Promise<Nurse[]> {
-  const nursesRef = collection(db, 'nurses');
+export async function findAvailableNurses(request: ServiceRequestInput, serviceRequestId: string): Promise<Nurse[]> {
+  // Instead of querying the entire nurses collection,
+  // get available nurses from the service request's availableNurses array
+  const serviceRequestRef = doc(db, 'serviceRequests', serviceRequestId);
+  const serviceRequestDoc = await getDoc(serviceRequestRef);
   
-  // For this version, we are querying all online nurses and then filtering them in the component.
-  // A more advanced implementation might use more complex queries here, possibly with geohashing for location.
-  const q = query(nursesRef, where('availability.isOnline', '==', true));
+  if (!serviceRequestDoc.exists()) {
+    throw new Error('Service request not found');
+  }
   
-  const querySnapshot = await getDocs(q);
-  const nurses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+  const serviceRequestData = serviceRequestDoc.data();
+  // The availableNurses array on the serviceRequest contains objects, not just IDs. We extract the IDs.
+  const availableNurseIds = (serviceRequestData.matching?.availableNurses || []).map((n: any) => n.nurseId);
+  
+  if (availableNurseIds.length === 0) {
+    return [];
+  }
+
+  // Fetch individual nurse documents (this uses 'get' permission, not 'list')
+  const nurseDocs = await Promise.all(
+    availableNurseIds.map((nurseId: string) => getDoc(doc(db, 'nurses', nurseId)))
+  );
+
+  const nurses: Nurse[] = nurseDocs
+    .filter(doc => doc.exists())
+    .map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
   
   return nurses;
 }
+
 
 
 /**
@@ -110,12 +128,12 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
  */
 export async function handleNurseResponse(requestId: string, accepted: boolean): Promise<void> {
   const requestRef = doc(db, 'serviceRequests', requestId);
-  const requestSnap = await getDocs(query(collection(db, 'serviceRequests'), where('id', '==', requestId)));
+  const requestSnap = await getDoc(requestRef);
   
-  if (requestSnap.empty) {
+  if (!requestSnap.exists()) {
      throw new Error("Service request not found.");
   }
-  const requestData = requestSnap.docs[0].data() as ServiceRequest;
+  const requestData = requestSnap.data() as ServiceRequest;
 
 
   if (accepted) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { GeoPoint, Timestamp, onSnapshot, doc } from 'firebase/firestore';
+import { GeoPoint, Timestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
@@ -179,11 +179,16 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        const allNurses = await findAvailableNurses(fullRequestInput);
-
+        // This is a temporary step. In a real-world scenario, a backend process
+        // would populate the availableNurses on the serviceRequest.
+        // For now, we'll fetch all online nurses to simulate this.
+        const tempNursesRef = query(collection(db, 'nurses'), where('availability.isOnline', '==', true));
+        const tempSnapshot = await getDocs(tempNursesRef);
+        const allNurses = tempSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+        
         const matchedNursesPromises = allNurses.map(async (nurse) => {
             const matchScore = await calculateMatchScore(nurse, fullRequestInput, patient);
-            if (matchScore > 50) { // Only consider nurses with a decent match score
+            if (matchScore > 50) {
                 const distance = getDistance(
                     fullRequestInput.patientLocation,
                     { latitude: nurse.location.latitude, longitude: nurse.location.longitude }
@@ -208,15 +213,20 @@ export function FindNurse() {
         const resolvedNurses = (await Promise.all(matchedNursesPromises))
             .filter((n): n is MatchedNurse => n !== null)
             .sort((a, b) => b.matchScore - a.matchScore);
-
-        setAvailableNurses(resolvedNurses);
         
+        // Create the service request with the list of matched nurses
         const docId = await createServiceRequest(patient, fullRequestInput, resolvedNurses);
         setServiceRequestId(docId);
+        
+        // Now fetch the nurses based on the created service request's data
+        const nursesForDisplay = await findAvailableNurses(fullRequestInput, docId);
 
-      } catch (err) {
+        // Update the state with the nurses to display
+        setAvailableNurses(resolvedNurses);
+
+      } catch (err: any) {
         console.error("Error finding nurses:", err);
-        setError("Failed to find matching nurses. Please try again.");
+        setError(`Failed to find matching nurses: ${err.message}. Please try again.`);
         setStep('request'); // Revert to request step on error
       } finally {
         setLoading(false);
