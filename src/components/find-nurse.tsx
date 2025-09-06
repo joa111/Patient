@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, GeoPoint, addDoc, doc, getDoc, Timestamp, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
+import { GeoPoint, Timestamp, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
@@ -22,7 +22,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSearchParams } from 'next/navigation';
-import { sendNotification } from '@/ai/flows/send-notification-flow';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
@@ -35,6 +34,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Progress } from '@/components/ui/progress';
 import type { Nurse, Patient, ServiceRequest, MatchedNurse, ServiceRequestInput } from '@/types/service-request';
+import { findAvailableNurses, createServiceRequest, offerServiceToNurse } from '@/lib/matching-service';
+
 
 const serviceRequestSchema = z.object({
     serviceType: z.string().min(1, "Please select a service type."),
@@ -128,12 +129,13 @@ export function FindNurse() {
         try {
             setLoading(true);
             const patientRef = doc(db, 'patients', patientId);
-            const patientSnap = await getDoc(patientRef);
-            if (patientSnap.exists()) {
-                setPatient({ id: patientSnap.id, ...patientSnap.data() } as Patient);
-            } else {
+            const unsubscribe = onSnapshot(patientRef, (docSnap) => {
+              if (docSnap.exists()) {
+                setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
+              } else {
                 setError("Patient not found.");
-            }
+              }
+            });
 
              if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
@@ -151,7 +153,7 @@ export function FindNurse() {
             } else {
                 setError('Geolocation is not supported by your browser.');
             }
-
+            return () => unsubscribe();
         } catch (err) {
             console.error(err);
             setError("Failed to load initial data.");
@@ -168,6 +170,7 @@ export function FindNurse() {
         return;
       }
       setLoading(true);
+      setStep('selecting');
 
       const fullRequestInput: ServiceRequestInput = {
         ...requestData,
@@ -176,11 +179,7 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        const nursesRef = collection(db, 'nurses');
-        const q = query(nursesRef, where("availability.isOnline", "==", true));
-        const querySnapshot = await getDocs(q);
-        
-        const allNurses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+        const allNurses = await findAvailableNurses(fullRequestInput);
 
         const matchedNursesPromises = allNurses.map(async (nurse) => {
             const matchScore = await calculateMatchScore(nurse, fullRequestInput, patient);
@@ -212,51 +211,13 @@ export function FindNurse() {
 
         setAvailableNurses(resolvedNurses);
         
-        const requestDoc: Omit<ServiceRequest, 'id'> = {
-            patientId: patient.id,
-            patientName: patient.name,
-            serviceDetails: {
-                type: fullRequestInput.serviceType,
-                scheduledDateTime: Timestamp.fromDate(fullRequestInput.scheduledDateTime),
-                duration: fullRequestInput.duration,
-                location: {
-                    address: "User's current location", // This would be improved with a geocoding API
-                    coordinates: new GeoPoint(fullRequestInput.patientLocation.latitude, fullRequestInput.patientLocation.longitude),
-                },
-                specialRequirements: fullRequestInput.specialRequirements,
-                isUrgent: fullRequestInput.isUrgent,
-            },
-            status: 'finding-nurses',
-            matching: {
-                availableNurses: resolvedNurses.map(n => ({
-                    nurseId: n.nurseId,
-                    nurseName: n.nurseName,
-                    matchScore: n.matchScore,
-                    estimatedCost: n.estimatedCost,
-                    distance: n.distance,
-                    rating: n.rating,
-                })),
-            },
-            payment: {
-                platformFee: 5, // Example fee
-                platformFeePaid: false,
-                nursePayment: {
-                    amount: 0, // Will be set upon confirmation
-                    paid: false,
-                },
-            },
-            createdAt: Timestamp.now(),
-            updatedAt: Timestamp.now(),
-        };
-
-        const docRef = await addDoc(collection(db, 'serviceRequests'), requestDoc);
-        setServiceRequestId(docRef.id);
-        
-        setStep('selecting');
+        const docId = await createServiceRequest(patient, fullRequestInput, resolvedNurses);
+        setServiceRequestId(docId);
 
       } catch (err) {
         console.error("Error finding nurses:", err);
         setError("Failed to find matching nurses. Please try again.");
+        setStep('request'); // Revert to request step on error
       } finally {
         setLoading(false);
       }
@@ -274,18 +235,8 @@ export function FindNurse() {
     }
     setLoading(true);
     try {
-        const requestRef = doc(db, 'serviceRequests', serviceRequestId);
-        await updateDoc(requestRef, {
-            'status': 'pending-response',
-            'matching.selectedNurseId': selectedNurse.nurseId,
-            'matching.offerSentAt': Timestamp.now(),
-            'matching.responseDeadline': Timestamp.fromMillis(Timestamp.now().toMillis() + 15 * 60 * 1000), // 15 min deadline
-            'payment.nursePayment.amount': selectedNurse.estimatedCost,
-            'updatedAt': Timestamp.now(),
-        });
+        await offerServiceToNurse(serviceRequestId, selectedNurse.nurseId, selectedNurse.estimatedCost);
 
-        // This would be where you notify the nurse.
-        // For now, we simulate this with a toast.
         console.log(`Sending offer to ${selectedNurse.nurseName}...`);
         toast({
             title: "Offer Sent!",
@@ -526,3 +477,5 @@ export function FindNurse() {
     </div>
   );
 }
+
+    

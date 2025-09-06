@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +15,8 @@ import { FindNurse } from '@/components/find-nurse';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import type { Patient, ServiceRequest } from '@/types/service-request';
+import { sendNotification } from '@/ai/flows/send-notification-flow';
+
 
 function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined | string[] }) {
   if (!value && value !== 0) return null;
@@ -74,32 +76,30 @@ function ProfilePageContent() {
   const patientId = searchParams.get('id');
 
   useEffect(() => {
-    async function fetchPatientData() {
-      if (!patientId) {
-        setError("No patient ID provided in the URL.");
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const patientRef = doc(db, 'patients', patientId);
-        const patientSnap = await getDoc(patientRef);
-
-        if (patientSnap.exists()) {
-          setPatient({ id: patientSnap.id, ...patientSnap.data() } as Patient);
-        } else {
-          setError(`No patient record found for ID: ${patientId}.`);
-        }
-      } catch (err) {
-        console.error("Firestore Error:", err);
-        setError("Failed to fetch patient data. Make sure Firestore is set up correctly and security rules allow access.");
-      } finally {
-        setLoading(false);
-      }
+    if (!patientId) {
+      setError("No patient ID provided in the URL.");
+      setLoading(false);
+      return;
     }
 
-    fetchPatientData();
-  }, [patientId, router]);
+    const patientRef = doc(db, 'patients', patientId);
+    const unsubscribe = onSnapshot(patientRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setPatient({ id: docSnap.id, ...docSnap.data() } as Patient);
+        setError(null);
+      } else {
+        setError(`No patient record found for ID: ${patientId}.`);
+        setPatient(null);
+      }
+      setLoading(false);
+    }, (err) => {
+      console.error("Firestore Error:", err);
+      setError("Failed to fetch patient data.");
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [patientId]);
 
   if (loading) return <ProfileSkeleton />;
   if (error) return (
@@ -253,19 +253,18 @@ function DashboardTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
 
   const { upcoming, active } = useMemo(() => {
-      const upcoming: ServiceRequest[] = [];
-      const active: ServiceRequest[] = [];
       const now = new Date();
-
-      serviceRequests.forEach(req => {
-          const reqDate = req.serviceDetails.scheduledDateTime.toDate();
-          if ((req.status === 'confirmed' || req.status === 'pending-response') && reqDate > now) {
-              upcoming.push(req);
-          } else if (req.status === 'in-progress' || req.status === 'finding-nurses') {
-              active.push(req);
+      return serviceRequests.reduce((acc, req) => {
+          if (!req.serviceDetails.scheduledDateTime) return acc;
+          const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
+          
+          if ((req.status === 'confirmed') && reqDate > now) {
+              acc.upcoming.push(req);
+          } else if (req.status === 'in-progress' || req.status === 'finding-nurses' || req.status === 'pending-response') {
+              acc.active.push(req);
           }
-      });
-      return { upcoming, active };
+          return acc;
+      }, { upcoming: [] as ServiceRequest[], active: [] as ServiceRequest[] });
   }, [serviceRequests]);
 
 
@@ -315,8 +314,9 @@ function HistoryTab({ patientId }: { patientId: string }) {
   const pastRequests = useMemo(() => {
     const now = new Date();
     return serviceRequests.filter(req => {
-      const reqDate = req.serviceDetails.scheduledDateTime.toDate();
-      return ['completed', 'cancelled', 'declined'].includes(req.status) || reqDate < now;
+       if (!req.serviceDetails.scheduledDateTime) return false;
+      const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
+      return ['completed', 'cancelled', 'declined'].includes(req.status) || (reqDate < now && req.status !== 'confirmed');
     });
   }, [serviceRequests]);
 
@@ -347,15 +347,18 @@ function RequestCard({ request }: { request: ServiceRequest }) {
         ? request.matching.availableNurses.find(n => n.nurseId === request.matching.selectedNurseId)?.nurseName
         : "Finding Nurse...";
     
-    const onNotify = async () => {
-        // Example of using the notification flow
+    const onNotify = async (type: 'confirmation' | 'en_route') => {
         toast({ title: 'Sending notification...' });
-        // const result = await sendNotification({ appointmentId: request.id, type: 'en_route' });
-        // if (result.success) {
-        //     toast({ title: 'Notification Sent!', description: 'The patient has been notified.' });
-        // } else {
-        //     toast({ variant: 'destructive', title: 'Error', description: result.message });
-        // }
+        const result = await sendNotification({ 
+            requestId: request.id, 
+            type: type,
+            userId: request.patientId, // Notify the patient
+        });
+        if (result.success) {
+            toast({ title: 'Notification Sent!', description: result.message });
+        } else {
+            toast({ variant: 'destructive', title: 'Error', description: result.message });
+        }
     };
     
     return (
@@ -365,7 +368,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
                     <span className="text-xl">{request.serviceDetails.type}</span>
                     <span className={`text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground`}>{request.status}</span>
                 </CardTitle>
-                <CardDescription>{format(request.serviceDetails.scheduledDateTime.toDate(), "EEEE, MMMM do, yyyy 'at' p")}</CardDescription>
+                <CardDescription>{format((request.serviceDetails.scheduledDateTime as Timestamp).toDate(), "EEEE, MMMM do, yyyy 'at' p")}</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="flex items-center text-muted-foreground mt-2">
@@ -376,13 +379,20 @@ function RequestCard({ request }: { request: ServiceRequest }) {
                     <MapPin className="mr-2 h-4 w-4" />
                     <span>{request.serviceDetails.location.address}</span>
                 </div>
-                {/* Example of a conditional button */}
                 {request.status === 'confirmed' && (
-                    <Button variant="outline" size="sm" className="mt-4" onClick={onNotify}>
-                        <Bell className="mr-2 h-4 w-4" /> Notify I'm Ready
+                    <Button variant="outline" size="sm" className="mt-4" onClick={() => onNotify('en_route')}>
+                        <Bell className="mr-2 h-4 w-4" /> Notify Nurse I'm Ready
                     </Button>
+                )}
+                 {request.status === 'pending-response' && (
+                     <div className="flex items-center text-amber-600 mt-4">
+                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>
+                        <span>Waiting for nurse to respond...</span>
+                     </div>
                 )}
             </CardContent>
         </Card>
     )
 }
+
+    

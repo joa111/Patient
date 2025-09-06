@@ -13,8 +13,11 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 const SendNotificationInputSchema = z.object({
-  appointmentId: z.string().describe('The ID of the appointment document in Firestore.'),
-  type: z.enum(['confirmation', 'en_route']).describe('The type of notification to send.'),
+  // This can be a serviceRequestId or an appointmentId for backward compatibility
+  requestId: z.string().describe('The ID of the service request or appointment document in Firestore.'),
+  type: z.enum(['confirmation', 'en_route', 'new_offer', 'request_confirmed', 'request_declined' ]).describe('The type of notification to send.'),
+  // userId can be a patientId or a nurseId depending on the notification type
+  userId: z.string().describe('The ID of the user to notify.'),
 });
 export type SendNotificationInput = z.infer<typeof SendNotificationInputSchema>;
 
@@ -38,54 +41,75 @@ const sendNotificationFlow = ai.defineFlow(
   },
   async (input) => {
     try {
-      const appointmentRef = doc(db, 'appointments', input.appointmentId);
-      const appointmentSnap = await getDoc(appointmentRef);
+      // Determine the collection based on the type of notification
+      const isServiceRequest = ['new_offer', 'request_confirmed', 'request_declined'].includes(input.type);
+      const collectionName = isServiceRequest ? 'serviceRequests' : 'appointments';
+      
+      const requestRef = doc(db, collectionName, input.requestId);
+      const requestSnap = await getDoc(requestRef);
 
-      if (!appointmentSnap.exists()) {
-        throw new Error(`Appointment with ID ${input.appointmentId} not found.`);
+      if (!requestSnap.exists()) {
+        throw new Error(`Document with ID ${input.requestId} not found in ${collectionName}.`);
       }
 
-      const appointment = appointmentSnap.data();
-      const patientRef = doc(db, 'patients', appointment.patientId);
-      const patientSnap = await getDoc(patientRef);
+      const requestData = requestSnap.data();
       
-      if (!patientSnap.exists()) {
-        throw new Error(`Patient with ID ${appointment.patientId} not found.`);
+      // Determine recipient collection (patient or nurse)
+      const isPatientNotification = ['confirmation', 'en_route', 'request_confirmed', 'request_declined'].includes(input.type);
+      const userRef = doc(db, isPatientNotification ? 'patients' : 'nurses', input.userId);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) {
+        throw new Error(`User with ID ${input.userId} not found.`);
       }
       
-      const patient = patientSnap.data();
+      const user = userSnap.data();
 
       let title = '';
       let body = '';
 
-      if (input.type === 'confirmation') {
-        title = 'Appointment Confirmed!';
-        body = `Your appointment with ${appointment.nurseName} for ${appointment.appointmentTime} is confirmed.`;
-      } else if (input.type === 'en_route') {
-        title = 'Your Nurse is On The Way!';
-        body = `${appointment.nurseName} is en route to your location.`;
+      switch(input.type) {
+        case 'confirmation':
+          title = 'Appointment Confirmed!';
+          body = `Your appointment with ${requestData.nurseName} for ${requestData.appointmentTime} is confirmed.`;
+          break;
+        case 'en_route':
+          title = 'Your Nurse is On The Way!';
+          body = `${requestData.nurseName} is en route to your location.`;
+          break;
+        case 'new_offer':
+          title = 'New Service Request!';
+          body = `You have a new service request from a patient. Please respond within 15 minutes.`;
+          break;
+        case 'request_confirmed':
+           title = 'Your Request Was Accepted!';
+           body = `Your service request has been confirmed by the nurse.`;
+           break;
+        case 'request_declined':
+            title = 'Request Declined';
+            body = `Unfortunately, your service request was declined. Please try another nurse.`;
+            break;
       }
 
       // *****************************************************************
       // ** TODO: Implement actual Push Notification logic here (e.g., FCM)
       // *****************************************************************
-      // For now, we'll just log to the console to simulate sending.
       console.log('------------------------------------');
       console.log('SENDING PUSH NOTIFICATION');
-      console.log('To:', patient.email || patient.contact); // Or a device token
+      console.log('To:', user.email || user.contact); // Or a device token
       console.log('Title:', title);
       console.log('Body:', body);
       console.log('------------------------------------');
 
-
-      // Update notification status in Firestore
-      await updateDoc(appointmentRef, {
+      // Update notification status in Firestore if applicable
+      await updateDoc(requestRef, {
         notificationStatus: 'Sent',
+        updatedAt: new Date(),
       });
       
       return {
         success: true,
-        message: `Notification '${input.type}' sent successfully for appointment ${input.appointmentId}.`,
+        message: `Notification '${input.type}' sent successfully for request ${input.requestId}.`,
       };
 
     } catch (error: any) {
@@ -97,3 +121,5 @@ const sendNotificationFlow = ai.defineFlow(
     }
   }
 );
+
+    

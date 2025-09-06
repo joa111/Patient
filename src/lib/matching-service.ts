@@ -13,6 +13,8 @@ import type { ServiceRequestInput, Nurse, Patient, ServiceRequest } from '@/type
  * @returns The ID of the newly created document.
  */
 export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput, availableNurses: any[]): Promise<string> {
+  if (!patient) throw new Error("Patient is required to create a service request");
+
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
     patientName: patient.name,
@@ -21,7 +23,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
       scheduledDateTime: Timestamp.fromDate(requestInput.scheduledDateTime),
       duration: requestInput.duration,
       location: {
-        address: "User's current location", // Placeholder
+        address: "User's current location", // This would be improved with a geocoding API
         coordinates: new GeoPoint(requestInput.patientLocation.latitude, requestInput.patientLocation.longitude),
       },
       specialRequirements: requestInput.specialRequirements,
@@ -29,13 +31,20 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     },
     status: 'finding-nurses',
     matching: {
-      availableNurses,
+      availableNurses: availableNurses.map(n => ({
+        nurseId: n.nurseId,
+        nurseName: n.nurseName,
+        matchScore: n.matchScore,
+        estimatedCost: n.estimatedCost,
+        distance: n.distance,
+        rating: n.rating,
+      })),
     },
     payment: {
-      platformFee: 5.00, // Example fee
+      platformFee: 5, // Example fee
       platformFeePaid: false,
       nursePayment: {
-        amount: 0,
+        amount: 0, // Will be set upon confirmation
         paid: false,
       },
     },
@@ -57,14 +66,13 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
 export async function findAvailableNurses(request: ServiceRequestInput): Promise<Nurse[]> {
   const nursesRef = collection(db, 'nurses');
   
-  // Basic query: find nurses who are online.
-  // A more complex query could filter by specialty, location radius (using geohashing), etc.
+  // For this version, we are querying all online nurses and then filtering them in the component.
+  // A more advanced implementation might use more complex queries here, possibly with geohashing for location.
   const q = query(nursesRef, where('availability.isOnline', '==', true));
   
   const querySnapshot = await getDocs(q);
   const nurses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
   
-  // Further filtering can be done client-side or with more complex backend logic
   return nurses;
 }
 
@@ -73,6 +81,7 @@ export async function findAvailableNurses(request: ServiceRequestInput): Promise
  * Updates a service request to send an offer to a specific nurse.
  * @param requestId - The ID of the service request.
  * @param nurseId - The ID of the nurse to receive the offer.
+ * @param estimatedCost - The estimated cost of the service.
  * @returns A promise that resolves when the update is complete.
  */
 export async function offerServiceToNurse(requestId: string, nurseId: string, estimatedCost: number): Promise<void> {
@@ -88,7 +97,7 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
   });
   
   // Here you would trigger the actual notification to the nurse
-  // e.g., await sendNotification({ type: 'new_offer', userId: nurseId, requestId });
+  // e.g., using a Genkit flow: await sendNotification({ type: 'new_offer', userId: nurseId, requestId });
   console.log(`Offer sent to nurse ${nurseId} for request ${requestId}`);
 }
 
@@ -101,12 +110,13 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
  */
 export async function handleNurseResponse(requestId: string, accepted: boolean): Promise<void> {
   const requestRef = doc(db, 'serviceRequests', requestId);
-  const requestSnap = await getDoc(requestRef);
-  const requestData = requestSnap.data() as ServiceRequest;
-
-  if (!requestData) {
-    throw new Error("Service request not found.");
+  const requestSnap = await getDocs(query(collection(db, 'serviceRequests'), where('id', '==', requestId)));
+  
+  if (requestSnap.empty) {
+     throw new Error("Service request not found.");
   }
+  const requestData = requestSnap.docs[0].data() as ServiceRequest;
+
 
   if (accepted) {
     await updateDoc(requestRef, {
@@ -119,11 +129,13 @@ export async function handleNurseResponse(requestId: string, accepted: boolean):
     // If declined, logic to offer to the next-best nurse could be implemented here.
     // For now, we'll just mark it as cancelled.
     await updateDoc(requestRef, {
-      status: 'cancelled', // Or a new status like 'declined'
-      'matching.selectedNurseId': null, // Clear the selected nurse
+      status: 'declined', 
+      'matching.selectedNurseId': '', 
       updatedAt: Timestamp.now(),
     });
      // Notify patient of decline
     // e.g., await sendNotification({ type: 'request_declined', userId: requestData.patientId, requestId });
   }
 }
+
+    
