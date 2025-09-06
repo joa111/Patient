@@ -179,13 +179,11 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        // In a real app, a backend function would find nurses.
-        // For this simulation, we'll create the request and then read the matches from it.
-        // This array would be populated by the backend. For now, we'll pass an empty array
-        // and assume the backend simulation populates it upon creation.
-        const mockMatchedNurses: MatchedNurse[] = []; // This would be done by a backend.
+        // In a real app, a backend function would find nurses and populate the
+        // availableNurses on the serviceRequest.
+        // For this simulation, we'll create the request and then listen for those matches.
         
-        const docId = await createServiceRequest(patient, fullRequestInput, mockMatchedNurses);
+        const docId = await createServiceRequest(patient, fullRequestInput);
         setServiceRequestId(docId);
         
         // Now, we'll listen for the results to appear on the service request document.

@@ -9,10 +9,12 @@ import type { ServiceRequestInput, Nurse, Patient, ServiceRequest } from '@/type
 
 /**
  * Creates a new service request document in the 'serviceRequests' collection.
- * @param requestData - The data for the new service request.
+ * The availableNurses array is initialized as empty, assuming a backend process will populate it.
+ * @param patient - The patient creating the request.
+ * @param requestInput - The data for the new service request.
  * @returns The ID of the newly created document.
  */
-export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput, availableNurses: any[]): Promise<string> {
+export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
   if (!patient) throw new Error("Patient is required to create a service request");
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
@@ -31,14 +33,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     },
     status: 'finding-nurses',
     matching: {
-      availableNurses: availableNurses.map(n => ({
-        nurseId: n.nurseId,
-        nurseName: n.nurseName,
-        matchScore: n.matchScore,
-        estimatedCost: n.estimatedCost,
-        distance: n.distance,
-        rating: n.rating,
-      })),
+      availableNurses: [], // Initialize with an empty array
     },
     payment: {
       platformFee: 5, // Example fee
