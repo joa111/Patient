@@ -179,56 +179,33 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        // This is a temporary step. In a real-world scenario, a backend process
-        // would populate the availableNurses on the serviceRequest.
-        // For now, we'll fetch all online nurses to simulate this.
-        const tempNursesRef = query(collection(db, 'nurses'), where('availability.isOnline', '==', true));
-        const tempSnapshot = await getDocs(tempNursesRef);
-        const allNurses = tempSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+        // In a real app, a backend function would find nurses.
+        // For this simulation, we'll create the request and then read the matches from it.
+        // This array would be populated by the backend. For now, we'll pass an empty array
+        // and assume the backend simulation populates it upon creation.
+        const mockMatchedNurses: MatchedNurse[] = []; // This would be done by a backend.
         
-        const matchedNursesPromises = allNurses.map(async (nurse) => {
-            const matchScore = await calculateMatchScore(nurse, fullRequestInput, patient);
-            if (matchScore > 50) {
-                const distance = getDistance(
-                    fullRequestInput.patientLocation,
-                    { latitude: nurse.location.latitude, longitude: nurse.location.longitude }
-                ) / 1000;
-                const specialtyRate = nurse.rates?.specialties?.find(s => s.name === fullRequestInput.serviceType)?.rate || nurse.rates?.hourlyRate || 50;
-                const estimatedCost = specialtyRate * fullRequestInput.duration;
-
-                return {
-                    nurseId: nurse.id,
-                    nurseName: nurse.name,
-                    avatarUrl: nurse.avatarUrl,
-                    qualification: nurse.qualification,
-                    matchScore: Math.round(matchScore),
-                    estimatedCost,
-                    distance: parseFloat(distance.toFixed(1)),
-                    rating: nurse.stats?.rating || 0,
-                };
-            }
-            return null;
-        });
-
-        const resolvedNurses = (await Promise.all(matchedNursesPromises))
-            .filter((n): n is MatchedNurse => n !== null)
-            .sort((a, b) => b.matchScore - a.matchScore);
-        
-        // Create the service request with the list of matched nurses
-        const docId = await createServiceRequest(patient, fullRequestInput, resolvedNurses);
+        const docId = await createServiceRequest(patient, fullRequestInput, mockMatchedNurses);
         setServiceRequestId(docId);
         
-        // Now fetch the nurses based on the created service request's data
-        const nursesForDisplay = await findAvailableNurses(docId);
-
-        // Update the state with the nurses to display
-        setAvailableNurses(resolvedNurses);
+        // Now, we'll listen for the results to appear on the service request document.
+        // This simulates the asynchronous nature of a backend matching service.
+        const requestRef = doc(db, 'serviceRequests', docId);
+        const unsubscribe = onSnapshot(requestRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const reqData = docSnap.data() as ServiceRequest;
+                if (reqData.matching.availableNurses && reqData.matching.availableNurses.length > 0) {
+                     setAvailableNurses(reqData.matching.availableNurses);
+                     setLoading(false);
+                     unsubscribe(); // Stop listening once we have the nurses.
+                }
+            }
+        });
 
       } catch (err: any) {
         console.error("Error finding nurses:", err);
         setError(`Failed to find matching nurses: ${err.message}. Please try again.`);
         setStep('request'); // Revert to request step on error
-      } finally {
         setLoading(false);
       }
   };
