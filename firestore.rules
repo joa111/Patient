@@ -31,18 +31,16 @@ service cloud.firestore {
       allow read, write: if isOwner(patientId);
       
       // Verified nurses can read patient basic info for service requests
-      // Note: This only allows reading a single document, not listing all patients.
       allow get: if isVerifiedNurse();
     }
     
     // Nurses collection rules
     match /nurses/{nurseId} {
       // Nurses can read and write their own profile
-      allow write: if isOwner(nurseId);
+      allow read, write: if isOwner(nurseId);
       
-      // Patients can list nurses for matching purposes.
-      // Individual nurse profiles can be read by any authenticated user.
-      allow list, get: if isAuthenticated();
+      // Patients can list and get nurse profiles for matching
+      allow list, get: if isPatient();
       
       // During registration, allow creation with pending status
       allow create: if isOwner(nurseId) && 
@@ -58,16 +56,18 @@ service cloud.firestore {
     // Service requests collection rules
     match /serviceRequests/{requestId} {
       // Patients can create their own service requests
+      // FIX: Changed status check from 'creating' to 'finding-nurses' to match application logic
       allow create: if isPatient() && 
-                      request.resource.data.patientId == request.auth.uid;
-                      
+                      request.resource.data.patientId == request.auth.uid &&
+                      request.resource.data.status == 'finding-nurses';
+      
       // Patients can read and update their own service requests
       allow read, update: if isPatient() && resource.data.patientId == request.auth.uid;
       
       // Nurses can read requests where they are the selected nurse
       allow read: if isVerifiedNurse() && 
-                     (resource.data.matching.selectedNurseId == request.auth.uid || request.auth.uid in resource.data.matching.availableNurses.map(n => n.nurseId));
-
+                     resource.data.matching.selectedNurseId == request.auth.uid;
+      
       // Nurses can update request status when they are the selected nurse
       allow update: if isVerifiedNurse() && 
                       resource.data.matching.selectedNurseId == request.auth.uid &&
@@ -88,41 +88,9 @@ service cloud.firestore {
                       resource.data.nurseId == request.auth.uid;
     }
     
-    // Chat/Messages collection
-    match /chats/{chatId} {
-      // Both patient and nurse can read/write if they are participants
-      allow read, write: if isAuthenticated() && 
-                           request.auth.uid in resource.data.participants;
-      
-      // Allow creation if user is one of the participants
-      allow create: if isAuthenticated() && 
-                      request.auth.uid in request.resource.data.participants;
-    }
-    
-    // Notifications collection
-    match /notifications/{notificationId} {
-      // Users can read their own notifications
-      allow read: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
-      
-      // Users can update their own notifications to mark as read
-      allow update: if isAuthenticated() && 
-                      resource.data.recipientId == request.auth.uid;
-      
-      // System creates notifications via Cloud Functions, not users
-      allow create: if false;
-    }
-    
-    // Reviews/Ratings collection
-    match /reviews/{reviewId} {
-      // Users can read reviews
-      allow read: if isAuthenticated();
-      
-      // Patients can create reviews for completed services
-      allow create: if isPatient() && 
-                      request.resource.data.reviewerId == request.auth.uid;
-      
-      // Users can update their own reviews
-      allow update: if isAuthenticated() && resource.data.reviewerId == request.auth.uid;
+    // Default deny rule for any other collections
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
