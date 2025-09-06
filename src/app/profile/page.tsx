@@ -18,6 +18,33 @@ import { format } from 'date-fns';
 import type { Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 import { sendNotification } from '@/ai/flows/send-notification-flow';
 
+/**
+ * Safely converts a Firestore Timestamp or a date-like object to a JavaScript Date.
+ * @param dateValue The value to convert, which can be a Timestamp, a string, or an object with seconds/nanoseconds.
+ * @returns A Date object or null if the input is invalid.
+ */
+function toSafeDate(dateValue: any): Date | null {
+    if (!dateValue) {
+        return null;
+    }
+    // It's already a Firestore Timestamp
+    if (dateValue.toDate) {
+        return dateValue.toDate();
+    }
+    // It's a serialized object from Firestore (e.g., from server-side rendering)
+    if (typeof dateValue === 'object' && dateValue.seconds !== undefined) {
+        return new Date(dateValue.seconds * 1000);
+    }
+    // It's a string or a number (milliseconds)
+    if (typeof dateValue === 'string' || typeof dateValue === 'number') {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+            return date;
+        }
+    }
+    return null;
+}
+
 
 function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined | string[] }) {
   if (!value && value !== 0) return null;
@@ -281,8 +308,9 @@ function DashboardTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
 
   const { upcoming, active } = serviceRequests.reduce((acc, req) => {
-    if (!req.serviceDetails.scheduledDateTime) return acc;
-    const reqDate = (req.serviceDetails.scheduledDateTime as Timestamp).toDate();
+    const reqDate = toSafeDate(req.serviceDetails.scheduledDateTime);
+    if (!reqDate) return acc;
+    
     const now = new Date();
     
     if ((req.status === 'confirmed') && reqDate > now) {
@@ -382,7 +410,9 @@ function RequestCard({ request }: { request: ServiceRequest }) {
         }
     };
     
-    const scheduledTime = request.serviceDetails.scheduledDateTime ? format((request.serviceDetails.scheduledDateTime as Timestamp).toDate(), "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
+    const scheduledDate = toSafeDate(request.serviceDetails.scheduledDateTime);
+    const scheduledTime = scheduledDate ? format(scheduledDate, "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
+
 
     return (
         <Card className="hover:shadow-md transition-shadow">
