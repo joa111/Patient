@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { GeoPoint, Timestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { GeoPoint, Timestamp, onSnapshot, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
@@ -219,7 +219,7 @@ export function FindNurse() {
         setServiceRequestId(docId);
         
         // Now fetch the nurses based on the created service request's data
-        const nursesForDisplay = await findAvailableNurses(fullRequestInput, docId);
+        const nursesForDisplay = await findAvailableNurses(docId);
 
         // Update the state with the nurses to display
         setAvailableNurses(resolvedNurses);

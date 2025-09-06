@@ -63,7 +63,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
  * @param request - The service request details.
  * @returns A promise that resolves to an array of available nurses.
  */
-export async function findAvailableNurses(request: ServiceRequestInput, serviceRequestId: string): Promise<Nurse[]> {
+export async function findAvailableNurses(serviceRequestId: string): Promise<Nurse[]> {
   // Instead of querying the entire nurses collection,
   // get available nurses from the service request's availableNurses array
   const serviceRequestRef = doc(db, 'serviceRequests', serviceRequestId);
