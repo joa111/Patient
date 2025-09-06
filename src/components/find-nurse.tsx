@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, GeoPoint, addDoc, doc, getDoc, Timestamp, query, where, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, GeoPoint, addDoc, doc, getDoc, Timestamp, query, where, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, MapPin, Briefcase, Clock, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
@@ -41,7 +41,7 @@ const serviceRequestSchema = z.object({
     scheduledDateTime: z.date({
         required_error: "A date and time is required.",
     }),
-    duration: z.number().min(1, "Duration must be at least 1 hour."),
+    duration: z.coerce.number().min(1, "Duration must be at least 1 hour."),
     specialRequirements: z.string().optional(),
     isUrgent: z.boolean().default(false),
 });
@@ -54,8 +54,7 @@ async function calculateMatchScore(
 ): Promise<number> {
   let score = 0;
 
-  if (!nurse.location || !request.patientLocation) return 0;
-  if (!patient.preferences) return 0;
+  if (!nurse.location || !request.patientLocation || !patient.preferences) return 0;
 
   // Distance factor (40% weight)
   const distance = getDistance(
@@ -63,8 +62,11 @@ async function calculateMatchScore(
     { latitude: nurse.location.latitude, longitude: nurse.location.longitude }
   ) / 1000; // convert to km
   
-  if (distance <= (nurse.availability?.serviceRadius ?? patient.preferences.maxDistance)) {
-    score += (40 * (1 - distance / (nurse.availability?.serviceRadius ?? patient.preferences.maxDistance)));
+  const maxDistance = nurse.availability?.serviceRadius ?? patient.preferences.maxDistance;
+  if (distance <= maxDistance) {
+    score += (40 * (1 - distance / maxDistance));
+  } else {
+    return 0; // Nurse is out of range
   }
   
   // Rating factor (25% weight)
@@ -85,7 +87,7 @@ async function calculateMatchScore(
     score += (5 * Math.max(0, 1 - nurse.stats.averageResponseTime / 60));
   }
   
-  return Math.min(100, score);
+  return Math.round(Math.min(100, score));
 }
 
 
@@ -94,10 +96,10 @@ export function FindNurse() {
   const searchParams = useSearchParams();
   const patientId = searchParams.get('id');
 
-  const [step, setStep] = useState<'request' | 'selecting' | 'confirming' | 'waiting'>('request');
+  const [step, setStep] = useState<'request' | 'selecting' | 'confirming' | 'waiting' | 'confirmed'>('request');
   
   const [patient, setPatient] = useState<Patient | null>(null);
-  const [serviceRequest, setServiceRequest] = useState<ServiceRequestInput | null>(null);
+  const [serviceRequestInput, setServiceRequestInput] = useState<ServiceRequestInput | null>(null);
   const [serviceRequestId, setServiceRequestId] = useState<string | null>(null);
   
   const [availableNurses, setAvailableNurses] = useState<MatchedNurse[]>([]);
@@ -133,16 +135,13 @@ export function FindNurse() {
                 setError("Patient not found.");
             }
 
-            // For now, we get user location via browser. In a real app, this might be saved in the patient's profile.
              if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
-                       if (!serviceRequest) {
-                         setServiceRequest(prev => ({
-                            ...prev,
-                            patientLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude }
-                         } as ServiceRequestInput));
-                       }
+                       setServiceRequestInput(prev => ({
+                          ...prev,
+                          patientLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude }
+                       } as ServiceRequestInput));
                     },
                     (geoError) => {
                         console.error("Geolocation error:", geoError);
@@ -161,33 +160,37 @@ export function FindNurse() {
         }
     }
     fetchInitialData();
-  }, [patientId, serviceRequest]);
+  }, [patientId]);
 
-  const findMatchingNurses = async (request: ServiceRequestInput) => {
-      if (!patient) {
-        setError("Patient data is missing.");
+  const findMatchingNurses = async (requestData: z.infer<typeof serviceRequestSchema>) => {
+      if (!patient || !serviceRequestInput?.patientLocation) {
+        setError("Patient data or location is missing.");
         return;
       }
       setLoading(true);
-      setServiceRequest(request);
+
+      const fullRequestInput: ServiceRequestInput = {
+        ...requestData,
+        patientLocation: serviceRequestInput.patientLocation
+      };
+      setServiceRequestInput(fullRequestInput);
 
       try {
         const nursesRef = collection(db, 'nurses');
-        // More complex query can be built here, e.g., filtering by specialty at DB level if needed
         const q = query(nursesRef, where("availability.isOnline", "==", true));
         const querySnapshot = await getDocs(q);
         
         const allNurses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
 
         const matchedNursesPromises = allNurses.map(async (nurse) => {
-            const matchScore = await calculateMatchScore(nurse, request, patient);
-            if (matchScore > 0) { // Only consider nurses with a positive match score
+            const matchScore = await calculateMatchScore(nurse, fullRequestInput, patient);
+            if (matchScore > 50) { // Only consider nurses with a decent match score
                 const distance = getDistance(
-                    request.patientLocation,
+                    fullRequestInput.patientLocation,
                     { latitude: nurse.location.latitude, longitude: nurse.location.longitude }
                 ) / 1000;
-                const specialtyRate = nurse.rates?.specialties?.find(s => s.name === request.serviceType)?.rate || nurse.rates?.hourlyRate || 50;
-                const estimatedCost = specialtyRate * request.duration;
+                const specialtyRate = nurse.rates?.specialties?.find(s => s.name === fullRequestInput.serviceType)?.rate || nurse.rates?.hourlyRate || 50;
+                const estimatedCost = specialtyRate * fullRequestInput.duration;
 
                 return {
                     nurseId: nurse.id,
@@ -209,20 +212,19 @@ export function FindNurse() {
 
         setAvailableNurses(resolvedNurses);
         
-        // Create serviceRequest document
         const requestDoc: Omit<ServiceRequest, 'id'> = {
             patientId: patient.id,
             patientName: patient.name,
             serviceDetails: {
-                type: request.serviceType,
-                scheduledDateTime: Timestamp.fromDate(request.scheduledDateTime),
-                duration: request.duration,
+                type: fullRequestInput.serviceType,
+                scheduledDateTime: Timestamp.fromDate(fullRequestInput.scheduledDateTime),
+                duration: fullRequestInput.duration,
                 location: {
                     address: "User's current location", // This would be improved with a geocoding API
-                    coordinates: new GeoPoint(request.patientLocation.latitude, request.patientLocation.longitude),
+                    coordinates: new GeoPoint(fullRequestInput.patientLocation.latitude, fullRequestInput.patientLocation.longitude),
                 },
-                specialRequirements: request.specialRequirements,
-                isUrgent: request.isUrgent,
+                specialRequirements: fullRequestInput.specialRequirements,
+                isUrgent: fullRequestInput.isUrgent,
             },
             status: 'finding-nurses',
             matching: {
@@ -282,8 +284,8 @@ export function FindNurse() {
             'updatedAt': Timestamp.now(),
         });
 
-        // This would be the point to call a new, more detailed Genkit flow
-        // For now, we simulate the notification
+        // This would be where you notify the nurse.
+        // For now, we simulate this with a toast.
         console.log(`Sending offer to ${selectedNurse.nurseName}...`);
         toast({
             title: "Offer Sent!",
@@ -305,16 +307,16 @@ export function FindNurse() {
     if (!serviceRequestId) return;
 
     const unsubscribe = onSnapshot(doc(db, "serviceRequests", serviceRequestId), (doc) => {
-        const data = doc.data();
+        const data = doc.data() as ServiceRequest;
         if (data) {
-            const currentStatus = data.status;
-            if (currentStatus === 'confirmed') {
+            if (data.status === 'confirmed') {
                 toast({
                     title: "Appointment Confirmed!",
-                    description: `${data.matching.selectedNurseName} has accepted your request.`,
+                    description: `${selectedNurse?.nurseName || 'The nurse'} has accepted your request.`,
+                    variant: 'default',
                 });
                 setStep('confirmed');
-            } else if (currentStatus === 'cancelled' || currentStatus === 'declined') {
+            } else if (data.status === 'cancelled' || data.status === 'declined') {
                  toast({
                     variant: "destructive",
                     title: "Request Declined",
@@ -326,12 +328,12 @@ export function FindNurse() {
     });
 
     return () => unsubscribe();
-  }, [serviceRequestId, toast]);
+  }, [serviceRequestId, selectedNurse, toast]);
 
 
   const renderContent = () => {
     if (loading && step === 'request') {
-       return <div className="text-center"><LoaderCircle className="mx-auto h-8 w-8 animate-spin" /><p>Loading...</p></div>;
+       return <div className="flex justify-center items-center h-48"><LoaderCircle className="h-8 w-8 animate-spin text-primary" /><p className="ml-4">Loading your information...</p></div>;
     }
     if (error) {
         return <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
@@ -343,7 +345,7 @@ export function FindNurse() {
           <div>
             <h3 className="font-headline text-xl font-semibold mb-4">Request a Service</h3>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(findMatchingNurses)} className="space-y-8">
+              <form onSubmit={form.handleSubmit(findMatchingNurses)} className="space-y-6">
                 <FormField control={form.control} name="serviceType" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Service Type</FormLabel>
@@ -354,50 +356,60 @@ export function FindNurse() {
                       <SelectContent>
                         <SelectItem value="general">General Check-up</SelectItem>
                         <SelectItem value="wound-care">Wound Care</SelectItem>
-                        <SelectItem value="injection">Injection</SelectItem>
+                        <SelectItem value="injection">Injection Administration</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="scheduledDateTime" render={({ field }) => (
-                   <FormItem className="flex flex-col">
-                    <FormLabel>Appointment Date</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FormField control={form.control} name="scheduledDateTime" render={({ field }) => (
+                       <FormItem className="flex flex-col">
+                        <FormLabel>Appointment Date & Time</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button variant={"outline"}>
+                                {field.value ? format(field.value, "PPpp") : <span>Pick a date and time</span>}
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} />
+                             <div className="p-2 border-t border-border">
+                               <Input type="time" onChange={(e) => {
+                                   const newDate = field.value ? new Date(field.value) : new Date();
+                                   const [hours, minutes] = e.target.value.split(':');
+                                   newDate.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+                                   field.onChange(newDate);
+                               }} />
+                             </div>
+                          </PopoverContent>
+                        </Popover>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                     <FormField control={form.control} name="duration" render={({ field }) => (
+                       <FormItem>
+                        <FormLabel>Duration (hours)</FormLabel>
                         <FormControl>
-                          <Button variant={"outline"}>
-                            {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                          </Button>
+                            <Input type="number" min="1" {...field}/>
                         </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                 <FormField control={form.control} name="duration" render={({ field }) => (
-                   <FormItem>
-                    <FormLabel>Duration (hours)</FormLabel>
-                    <FormControl>
-                        <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10))}/>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                </div>
                 <FormField control={form.control} name="specialRequirements" render={({ field }) => (
                    <FormItem>
-                    <FormLabel>Special Requirements</FormLabel>
+                    <FormLabel>Special Requirements or Notes</FormLabel>
                     <FormControl>
                         <Textarea placeholder="Anything the nurse should know..." {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? <LoaderCircle className="animate-spin" /> : 'Find Nurses'}
+                <Button type="submit" className="w-full text-lg py-6" disabled={loading}>
+                  {loading ? <LoaderCircle className="animate-spin" /> : 'Find Matching Nurses'}
                 </Button>
               </form>
             </Form>
@@ -408,12 +420,12 @@ export function FindNurse() {
         return (
           <div>
             <h3 className="font-headline text-xl font-semibold mb-4">Select a Nurse</h3>
-            {loading ? <p>Finding matches...</p> : availableNurses.length > 0 ? (
+            {loading ? <div className="flex justify-center items-center h-48"><LoaderCircle className="h-8 w-8 animate-spin text-primary" /><p className="ml-4">Finding best matches for you...</p></div> : availableNurses.length > 0 ? (
                  <div className="space-y-4">
                     {availableNurses.map((nurse) => (
-                        <Card key={nurse.nurseId} className="hover:bg-muted/50 transition-colors">
+                        <Card key={nurse.nurseId} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleSelectNurse(nurse)}>
                             <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
-                                <Avatar className="h-16 w-16 border">
+                                <Avatar className="h-16 w-16 border-2 border-primary/20">
                                     <AvatarImage src={nurse.avatarUrl} alt={nurse.nurseName} data-ai-hint="person nurse" />
                                     <AvatarFallback>{nurse.nurseName.charAt(0)}</AvatarFallback>
                                 </Avatar>
@@ -424,54 +436,58 @@ export function FindNurse() {
                                         <p className="flex items-center"><MapPin className="mr-2 h-4 w-4" /> {nurse.distance} km away</p>
                                         <p className="flex items-center"><Star className="mr-2 h-4 w-4 text-amber-400" /> {nurse.rating} / 5</p>
                                     </div>
-                                    <p className="text-lg font-semibold mt-2">${nurse.estimatedCost.toFixed(2)} (est)</p>
                                 </div>
-                                <div className="w-full sm:w-auto text-right flex flex-col items-end">
+                                <div className="w-full sm:w-auto text-right flex flex-col items-end gap-2">
+                                    <p className="text-xl font-semibold">${nurse.estimatedCost.toFixed(2)}<span className="text-sm font-normal text-muted-foreground"> (est.)</span></p>
                                     <div className="flex items-center gap-2">
-                                      <p className="text-sm font-medium">Match Score</p>
+                                      <p className="text-sm font-medium text-muted-foreground">Match Score</p>
                                       <Progress value={nurse.matchScore} className="w-24 h-2" />
                                       <span className="font-semibold text-primary">{nurse.matchScore}%</span>
                                     </div>
-                                    <Button size="sm" className="mt-2" onClick={() => handleSelectNurse(nurse)}>Select & Continue</Button>
                                 </div>
                             </CardContent>
                         </Card>
                     ))}
                  </div>
-            ) : <p>No nurses found for your request. Try adjusting your criteria.</p>}
-             <Button variant="outline" className="mt-4" onClick={() => setStep('request')}>Back to Request</Button>
+            ) : <p className="text-center text-muted-foreground py-12">No available nurses found for your request. Please try adjusting your criteria.</p>}
+             <Button variant="outline" className="mt-6" onClick={() => setStep('request')}>Back to Request Details</Button>
           </div>
         );
 
       case 'confirming':
-         if (!selectedNurse) return <p>Error: No nurse selected.</p>;
+         if (!selectedNurse || !serviceRequestInput) return <p>Error: No nurse or service request details selected.</p>;
          return (
             <div>
                 <h3 className="font-headline text-xl font-semibold mb-4">Confirm Booking</h3>
-                <Card>
+                <Card className="shadow-lg">
                     <CardHeader>
-                        <CardTitle>Request Summary</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
                         <div className="flex items-center space-x-4">
-                             <Avatar className="h-16 w-16 border">
+                             <Avatar className="h-20 w-20 border-2 border-primary">
                                 <AvatarImage src={selectedNurse.avatarUrl} alt={selectedNurse.nurseName} />
                                 <AvatarFallback>{selectedNurse.nurseName.charAt(0)}</AvatarFallback>
                             </Avatar>
                             <div>
-                                <p className="font-bold text-lg">{selectedNurse.nurseName}</p>
-                                <p className="text-muted-foreground">{selectedNurse.qualification}</p>
+                                <CardTitle className="text-2xl text-primary">{selectedNurse.nurseName}</CardTitle>
+                                <CardDescription>{selectedNurse.qualification}</CardDescription>
                             </div>
                         </div>
-                        <p><strong>Service:</strong> {serviceRequest?.serviceType}</p>
-                        <p><strong>When:</strong> {format(serviceRequest?.scheduledDateTime!, 'PPP p')}</p>
-                        <p className="text-2xl font-bold text-right">Estimated Total: ${selectedNurse.estimatedCost.toFixed(2)}</p>
-                        <p className="text-sm text-muted-foreground text-right">You will not be charged until the service is confirmed by the nurse.</p>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-2">
+                        <div className="border-t border-dashed pt-4">
+                            <p><strong>Service:</strong> {serviceRequestInput.serviceType}</p>
+                            <p><strong>When:</strong> {format(serviceRequestInput.scheduledDateTime, 'PPP p')}</p>
+                            <p><strong>Duration:</strong> {serviceRequestInput.duration} hour(s)</p>
+                        </div>
+                        <div className="text-right border-t border-dashed pt-4">
+                            <p className="text-sm text-muted-foreground">Estimated Total</p>
+                            <p className="text-3xl font-bold text-primary">${selectedNurse.estimatedCost.toFixed(2)}</p>
+                            <p className="text-xs text-muted-foreground mt-1">You will not be charged until the service is confirmed by the nurse.</p>
+                        </div>
                         
-                        <div className="flex gap-4 mt-6">
+                        <div className="flex gap-4 pt-4">
                            <Button variant="outline" className="w-full" onClick={() => setStep('selecting')}>Back to List</Button>
                            <Button className="w-full" onClick={handleConfirmBooking} disabled={loading}>
-                               {loading ? <LoaderCircle className="animate-spin" /> : 'Send Request to Nurse'}
+                               {loading ? <LoaderCircle className="animate-spin" /> : 'Send Request to Nurse'} <ArrowRight className="ml-2 h-5 w-5"/>
                            </Button>
                         </div>
                     </CardContent>
@@ -481,24 +497,23 @@ export function FindNurse() {
 
       case 'waiting':
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-12 flex flex-col items-center">
                 <LoaderCircle className="h-12 w-12 text-primary animate-spin mx-auto"/>
                 <h3 className="font-headline text-2xl font-semibold mt-6">Waiting for Confirmation</h3>
-                <p className="text-muted-foreground mt-2">We've sent your request to {selectedNurse?.nurseName}.</p>
-                <p className="text-muted-foreground">We'll notify you as soon as they respond.</p>
-                <Progress value={(15 * 60 - 1) / (15 * 60) * 100} className="w-full max-w-sm mx-auto mt-8" />
+                <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {selectedNurse?.nurseName}. We'll notify you here as soon as they respond.</p>
+                <Progress value={80} className="w-full max-w-sm mx-auto mt-8" />
                  <p className="text-sm text-muted-foreground mt-2">The request will expire in 15 minutes.</p>
             </div>
         );
       
       case 'confirmed':
         return (
-             <div className="text-center py-12">
+             <div className="text-center py-12 flex flex-col items-center">
                 <CheckCircle className="h-16 w-16 text-green-500 mx-auto"/>
-                <h3 className="font-headline text-2xl font-semibold mt-6">Booking Confirmed!</h3>
+                <h3 className="font-headline text-3xl font-semibold mt-6">Booking Confirmed!</h3>
                 <p className="text-muted-foreground mt-2">{selectedNurse?.nurseName} is confirmed for your appointment.</p>
-                <Button className="mt-6" onClick={() => window.location.reload()}>
-                    Done
+                <Button className="mt-8" onClick={() => window.location.reload()}>
+                    View in Dashboard
                 </Button>
             </div>
         )
@@ -506,7 +521,7 @@ export function FindNurse() {
   };
   
   return (
-    <div>
+    <div className="max-w-4xl mx-auto">
       {renderContent()}
     </div>
   );
