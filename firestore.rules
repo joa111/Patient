@@ -39,8 +39,13 @@ service cloud.firestore {
       // Nurses can read and write their own profile
       allow read, write: if isOwner(nurseId);
       
-      // Patients can list and get nurse profiles for matching
-      allow list, get: if isPatient();
+      // Patients can get any single nurse's profile
+      allow get: if isPatient();
+      
+      // THIS IS THE FIX: Patients can ONLY query for nurses where availability.isOnline is true.
+      // This rule now matches the query in the findAvailableNurses function.
+      allow list: if isPatient() && request.query.get('where')[0][2] == true && request.query.get('where')[0][0] == 'availability.isOnline';
+
       
       // During registration, allow creation with pending status
       allow create: if isOwner(nurseId) && 
@@ -56,10 +61,9 @@ service cloud.firestore {
     // Service requests collection rules
     match /serviceRequests/{requestId} {
       // Patients can create their own service requests
-      // FIX: Changed status check from 'creating' to 'finding-nurses' to match application logic
       allow create: if isPatient() && 
                       request.resource.data.patientId == request.auth.uid &&
-                      request.resource.data.status == 'finding-nurses';
+                      (request.resource.data.status == 'finding-nurses');
       
       // Patients can read and update their own service requests
       allow read, update: if isPatient() && resource.data.patientId == request.auth.uid;
@@ -86,11 +90,6 @@ service cloud.firestore {
       // Nurses can update notification status for their appointments
       allow update: if isVerifiedNurse() && 
                       resource.data.nurseId == request.auth.uid;
-    }
-    
-    // Default deny rule for any other collections
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }
