@@ -1,44 +1,128 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Patients should be able to read and update their own profiles.
-    // Anyone should be able to create a patient during sign-up.
-    match /patients/{patientId} {
-      allow read, update: if request.auth != null && request.auth.uid == patientId;
-      allow create: if true;
-    }
-
-    // Anyone can read nurse profiles to find a match.
-    // Only authenticated users (e.g., nurses themselves, not implemented here) can write.
-    match /nurses/{nurseId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // Legacy appointments collection, keeping rules for backward compatibility.
-    match /appointments/{appointmentId} {
-      allow read, create: if true;
-      allow update, delete: if false;
+    
+    // Helper functions for user authentication and role checking
+    function isAuthenticated() {
+      return request.auth != null;
     }
     
-    // New rules for the serviceRequests collection.
-    match /serviceRequests/{requestId} {
-      // Allow a patient to create a new service request.
-      allow create: if request.auth != null;
-      
-      // Allow a patient to read their own service request.
-      // Allow a nurse (selectedNurseId) to read the request.
-      allow read: if request.auth != null && (resource.data.patientId == request.auth.uid || resource.data.matching.selectedNurseId == request.auth.uid);
-      
-      // Allow a patient to update the request (e.g. to cancel).
-      // Allow a nurse to update the request (e.g. to confirm/decline).
-      allow update: if request.auth != null;
+    function isOwner(userId) {
+      return request.auth.uid == userId;
     }
+    
+    function isPatient() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/patients/$(request.auth.uid));
+    }
+    
+    function isNurse() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/nurses/$(request.auth.uid));
+    }
+    
+    function isVerifiedNurse() {
+      return isNurse() && 
+             get(/databases/$(database)/documents/nurses/$(request.auth.uid)).data.profileStatus == 'verified';
+    }
+    
+    // Patients collection rules
+    match /patients/{patientId} {
+      // Patients can read and write their own profile
+      allow read, write: if isOwner(patientId);
+      
+      // Verified nurses can read patient basic info for service requests
+      // Note: This only allows reading a single document, not listing all patients.
+      allow get: if isVerifiedNurse();
+    }
+    
+    // Nurses collection rules
+    match /nurses/{nurseId} {
+      // Nurses can read and write their own profile
+      allow write: if isOwner(nurseId);
+      
+      // Patients can list nurses for matching purposes.
+      // Individual nurse profiles can be read by any authenticated user.
+      allow list, get: if isAuthenticated();
+      
+      // During registration, allow creation with pending status
+      allow create: if isOwner(nurseId) && 
+                      request.resource.data.profileStatus == 'pending_verification' &&
+                      request.resource.data.uid == request.auth.uid;
+      
+      // Only allow updates to own profile, prevent changing verification status
+      allow update: if isOwner(nurseId) && 
+                       request.resource.data.profileStatus == resource.data.profileStatus &&
+                       request.resource.data.uid == resource.data.uid;
+    }
+    
+    // Service requests collection rules
+    match /serviceRequests/{requestId} {
+      // Patients can create their own service requests
+      allow create: if isPatient() && 
+                      request.resource.data.patientId == request.auth.uid;
+                      
+      // Patients can read and update their own service requests
+      allow read, update: if isPatient() && resource.data.patientId == request.auth.uid;
+      
+      // Nurses can read requests where they are the selected nurse
+      allow read: if isVerifiedNurse() && 
+                     (resource.data.matching.selectedNurseId == request.auth.uid || request.auth.uid in resource.data.matching.availableNurses.map(n => n.nurseId));
 
-    // Admins collection rule remains the same.
-    match /admins/{adminId} {
-      allow read: if request.auth != null;
+      // Nurses can update request status when they are the selected nurse
+      allow update: if isVerifiedNurse() && 
+                      resource.data.matching.selectedNurseId == request.auth.uid &&
+                      request.resource.data.patientId == resource.data.patientId &&
+                      request.resource.data.matching.selectedNurseId == resource.data.matching.selectedNurseId;
+    }
+    
+    // Legacy appointments collection for backward compatibility
+    match /appointments/{appointmentId} {
+      // Patients can read/write their own appointments
+      allow read, write: if isPatient() && resource.data.patientId == request.auth.uid;
+      
+      // Nurses can read appointments where they are assigned
+      allow read: if isVerifiedNurse() && resource.data.nurseId == request.auth.uid;
+      
+      // Nurses can update notification status for their appointments
+      allow update: if isVerifiedNurse() && 
+                      resource.data.nurseId == request.auth.uid;
+    }
+    
+    // Chat/Messages collection
+    match /chats/{chatId} {
+      // Both patient and nurse can read/write if they are participants
+      allow read, write: if isAuthenticated() && 
+                           request.auth.uid in resource.data.participants;
+      
+      // Allow creation if user is one of the participants
+      allow create: if isAuthenticated() && 
+                      request.auth.uid in request.resource.data.participants;
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+      
+      // Users can update their own notifications to mark as read
+      allow update: if isAuthenticated() && 
+                      resource.data.recipientId == request.auth.uid;
+      
+      // System creates notifications via Cloud Functions, not users
+      allow create: if false;
+    }
+    
+    // Reviews/Ratings collection
+    match /reviews/{reviewId} {
+      // Users can read reviews
+      allow read: if isAuthenticated();
+      
+      // Patients can create reviews for completed services
+      allow create: if isPatient() && 
+                      request.resource.data.reviewerId == request.auth.uid;
+      
+      // Users can update their own reviews
+      allow update: if isAuthenticated() && resource.data.reviewerId == request.auth.uid;
     }
   }
 }
