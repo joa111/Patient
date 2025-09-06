@@ -42,10 +42,8 @@ service cloud.firestore {
       // Patients can get any single nurse's profile
       allow get: if isPatient();
       
-      // THIS IS THE FIX: Patients can ONLY query for nurses where availability.isOnline is true.
-      // This rule now matches the query in the findAvailableNurses function.
-      allow list: if isPatient() && request.query.get('where')[0][2] == true && request.query.get('where')[0][0] == 'availability.isOnline';
-
+      // Patients can list available nurses
+      allow list: if isPatient();
       
       // During registration, allow creation with pending status
       allow create: if isOwner(nurseId) && 
@@ -63,7 +61,7 @@ service cloud.firestore {
       // Patients can create their own service requests
       allow create: if isPatient() && 
                       request.resource.data.patientId == request.auth.uid &&
-                      (request.resource.data.status == 'finding-nurses');
+                      (request.resource.data.status == 'creating' || request.resource.data.status == 'finding-nurses');
       
       // Patients can read and update their own service requests
       allow read, update: if isPatient() && resource.data.patientId == request.auth.uid;
@@ -90,6 +88,60 @@ service cloud.firestore {
       // Nurses can update notification status for their appointments
       allow update: if isVerifiedNurse() && 
                       resource.data.nurseId == request.auth.uid;
+    }
+    
+    // Chat/Messages collection
+    match /chats/{chatId} {
+      // Both patient and nurse can read/write if they are participants
+      allow read, write: if isAuthenticated() && 
+                           request.auth.uid in resource.data.participants;
+      
+      // Allow creation if user is one of the participants
+      allow create: if isAuthenticated() && 
+                      request.auth.uid in request.resource.data.participants;
+    }
+    
+    // Notifications collection
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
+      
+      // Users can update their own notifications to mark as read
+      allow update: if isAuthenticated() && 
+                      resource.data.recipientId == request.auth.uid;
+      
+      // System creates notifications via Cloud Functions, not users
+      allow create: if false;
+    }
+    
+    // Reviews/Ratings collection
+    match /reviews/{reviewId} {
+      // Users can read reviews
+      allow read: if isAuthenticated();
+      
+      // Patients can create reviews for completed services
+      allow create: if isPatient() && 
+                      request.resource.data.reviewerId == request.auth.uid;
+      
+      // Users can update their own reviews
+      allow update: if isAuthenticated() && resource.data.reviewerId == request.auth.uid;
+    }
+    
+    // Admin functions - restrict access
+    match /admin/{document=**} {
+      // Only allow access for admin users
+      allow read, write: if request.auth.token.admin == true;
+    }
+    
+    // Audit logs - admin read only, system write only
+    match /auditLogs/{logId} {
+      allow read: if request.auth.token.admin == true;
+      allow write: if false;
+    }
+    
+    // Default deny rule for any other collections
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
