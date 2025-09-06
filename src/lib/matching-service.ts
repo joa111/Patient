@@ -8,13 +8,13 @@ import type { ServiceRequestInput, Nurse, Patient, ServiceRequest, MatchedNurse 
 
 
 /**
- * A mock function to simulate finding available nurses based on a request.
+ * Finds available nurses by querying the 'nurses' collection for documents
+ * where 'availability.isOnline' is true.
  * In a real application, this would be a complex backend process.
  * This now runs on the client-side.
- * @param request - The service request details.
  * @returns A promise that resolves to an array of matched nurses.
  */
-export async function getMockAvailableNurses(): Promise<MatchedNurse[]> {
+export async function findAvailableNurses(): Promise<MatchedNurse[]> {
     const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
     const snapshot = await getDocs(nursesQuery);
     const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
@@ -35,7 +35,7 @@ export async function getMockAvailableNurses(): Promise<MatchedNurse[]> {
 
 /**
  * Creates a new service request document in the 'serviceRequests' collection.
- * The availableNurses array is populated by a mock function.
+ * The availableNurses array is populated by the findAvailableNurses function.
  * This runs on the client.
  * @param patient - The patient creating the request.
  * @param requestInput - The data for the new service request.
@@ -44,8 +44,8 @@ export async function getMockAvailableNurses(): Promise<MatchedNurse[]> {
 export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
   if (!patient) throw new Error("Patient is required to create a service request");
 
-  // Since this runs on the client, we can call our mock search function directly
-  const availableNurses = await getMockAvailableNurses();
+  // Since this runs on the client, we can call our search function directly
+  const availableNurses = await findAvailableNurses();
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
