@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Patients should be able to read and update their own profiles.
+    // Anyone should be able to create a patient during sign-up.
+    match /patients/{patientId} {
+      allow read, update: if request.auth != null && request.auth.uid == patientId;
+      allow create: if true;
+    }
+
+    // Anyone can read nurse profiles to find a match.
+    // Only authenticated users (e.g., nurses themselves, not implemented here) can write.
+    match /nurses/{nurseId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Legacy appointments collection, keeping rules for backward compatibility.
+    match /appointments/{appointmentId} {
+      allow read, create: if true;
+      allow update, delete: if false;
+    }
+    
+    // New rules for the serviceRequests collection.
+    match /serviceRequests/{requestId} {
+      // Allow a patient to create a new service request.
+      allow create: if request.auth != null;
+      
+      // Allow a patient to read their own service request.
+      // Allow a nurse (selectedNurseId) to read the request.
+      allow read: if request.auth != null && (resource.data.patientId == request.auth.uid || resource.data.matching.selectedNurseId == request.auth.uid);
+      
+      // Allow a patient to update the request (e.g. to cancel).
+      // Allow a nurse to update the request (e.g. to confirm/decline).
+      allow update: if request.auth != null;
+    }
+
+    // Admins collection rule remains the same.
+    match /admins/{adminId} {
+      allow read: if request.auth != null;
+    }
+  }
+}
