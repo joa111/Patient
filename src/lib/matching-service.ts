@@ -26,7 +26,7 @@ export async function getMockAvailableNurses(): Promise<MatchedNurse[]> {
         avatarUrl: nurse.avatarUrl,
         qualification: nurse.qualification,
         matchScore: Math.floor(Math.random() * (98 - 85 + 1)) + 85, // Random score between 85-98
-        estimatedCost: nurse.rates.hourlyRate * 1.5, // Mock cost
+        estimatedCost: (nurse.rates?.hourlyRate || 0) * 1.5, // FIX: Default to 0 if hourlyRate is missing
         distance: Math.round(Math.random() * 10 * 10) / 10, // Random distance 0-10km
         rating: nurse.stats.rating,
     })).sort((a, b) => b.matchScore - a.matchScore);
