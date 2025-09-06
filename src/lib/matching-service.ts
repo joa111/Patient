@@ -5,13 +5,12 @@
 import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { ServiceRequestInput, Nurse, Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
+import { sanitizeDataForFirestore } from '@/lib/utils';
 
 
 /**
- * Finds available nurses by querying the 'nurses' collection for documents
- * where 'availability.isOnline' is true.
- * In a real application, this would be a complex backend process.
- * This now runs on the client-side.
+ * Finds available nurses by querying the 'nurses' collection.
+ * This runs on the client-side.
  * @returns A promise that resolves to an array of matched nurses.
  */
 export async function findAvailableNurses(): Promise<MatchedNurse[]> {
@@ -26,7 +25,7 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
         avatarUrl: nurse.avatarUrl,
         qualification: nurse.qualification,
         matchScore: Math.floor(Math.random() * (98 - 85 + 1)) + 85, // Random score between 85-98
-        estimatedCost: (nurse.rates?.hourlyRate || 0) * 1.5, // FIX: Default to 0 if hourlyRate is missing
+        estimatedCost: (nurse.rates?.hourlyRate || 0) * 1.5,
         distance: Math.round(Math.random() * 10 * 10) / 10, // Random distance 0-10km
         rating: nurse.stats.rating,
     })).sort((a, b) => b.matchScore - a.matchScore);
@@ -35,7 +34,6 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
 
 /**
  * Creates a new service request document in the 'serviceRequests' collection.
- * The availableNurses array is populated by the findAvailableNurses function.
  * This runs on the client.
  * @param patient - The patient creating the request.
  * @param requestInput - The data for the new service request.
@@ -44,7 +42,6 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
 export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
   if (!patient) throw new Error("Patient is required to create a service request");
 
-  // Since this runs on the client, we can call our search function directly
   const availableNurses = await findAvailableNurses();
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
@@ -55,21 +52,21 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
       scheduledDateTime: Timestamp.fromDate(requestInput.scheduledDateTime),
       duration: requestInput.duration,
       location: {
-        address: "User's current location", // This would be improved with a geocoding API
+        address: "User's current location", 
         coordinates: new GeoPoint(requestInput.patientLocation.latitude, requestInput.patientLocation.longitude),
       },
-      specialRequirements: requestInput.specialRequirements,
-      isUrgent: requestInput.isUrgent,
+      specialRequirements: requestInput.specialRequirements || "",
+      isUrgent: requestInput.isUrgent || false,
     },
     status: 'finding-nurses',
     matching: {
       availableNurses: availableNurses,
     },
     payment: {
-      platformFee: 5, // Example fee
+      platformFee: 5,
       platformFeePaid: false,
       nursePayment: {
-        amount: 0, // Will be set upon confirmation
+        amount: 0,
         paid: false,
       },
     },
@@ -77,7 +74,13 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     updatedAt: Timestamp.now(),
   };
 
-  const docRef = await addDoc(collection(db, 'serviceRequests'), newRequest);
+  // 1. Debugging: Log the object to see what's being sent.
+  console.log('Attempting to create service request with this data:', newRequest);
+
+  // 2. Sanitization: Remove any undefined fields before sending to Firestore.
+  const sanitizedRequest = sanitizeDataForFirestore(newRequest);
+
+  const docRef = await addDoc(collection(db, 'serviceRequests'), sanitizedRequest);
   return docRef.id;
 }
 
@@ -97,7 +100,7 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
     status: 'pending-response',
     'matching.selectedNurseId': nurseId,
     'matching.offerSentAt': Timestamp.now(),
-    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000), // 15-minute deadline
+    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
     'payment.nursePayment.amount': estimatedCost,
     updatedAt: Timestamp.now(),
   });
