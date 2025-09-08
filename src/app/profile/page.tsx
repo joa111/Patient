@@ -237,7 +237,7 @@ function PatientTabs({ patient }: { patient: Patient }) {
             </div>
           </CardHeader>
         )}
-        <CardContent className="p-4 md:p-6 md:pb-16">
+        <CardContent className="p-4 pb-20 md:p-6 md:pb-6">
            <TabsList className="md:flex md:flex-row md:h-10 md:bg-primary/10 fixed bottom-0 left-0 right-0 z-50 flex h-16 justify-around bg-background shadow-[0_-1px_3px_rgba(0,0,0,0.1)] md:relative md:justify-start md:shadow-none md:rounded-md">
             <TabsTrigger value="dashboard" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><LayoutDashboard className="mr-0 md:mr-2 h-5 w-5" />Dashboard</TabsTrigger>
             <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
