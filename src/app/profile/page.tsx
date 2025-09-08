@@ -155,24 +155,7 @@ function ProfilePageContent() {
   if (!patient) return <ProfileSkeleton />;
 
   return (
-    <Card className="overflow-hidden shadow-xl border-primary/10">
-      <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-4 md:p-6">
-        <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-6">
-          <Avatar className="h-24 w-24 border-4 border-white shadow-md">
-            <AvatarImage src={patient.avatarUrl} alt={`Patient ${patient.name}`} data-ai-hint="person portrait" />
-            <AvatarFallback className="text-3xl">{patient.name?.charAt(0) ?? 'P'}</AvatarFallback>
-          </Avatar>
-          <div className="mt-4 sm:mt-0">
-            <CardTitle className="font-headline text-2xl md:text-3xl text-primary">{patient.name}</CardTitle>
-            <CardDescription className="mt-1">Patient ID: {patient.id}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-
-      <CardContent className="p-4 md:p-6 md:pb-16">
-        <PatientTabs patient={patient} />
-      </CardContent>
-    </Card>
+      <PatientTabs patient={patient} />
   );
 }
 
@@ -235,41 +218,61 @@ export default function ProfilePage() {
 }
 
 function PatientTabs({ patient }: { patient: Patient }) {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
   return (
-    <ShadTabs defaultValue="dashboard" className="w-full">
-      <TabsList className="md:flex md:flex-row md:h-10 md:bg-primary/10 fixed bottom-0 left-0 right-0 z-50 flex h-16 justify-around bg-background shadow-[0_-1px_3px_rgba(0,0,0,0.1)] md:relative md:justify-start md:shadow-none md:rounded-md">
-        <TabsTrigger value="dashboard" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><LayoutDashboard className="mr-0 md:mr-2 h-5 w-5" />Dashboard</TabsTrigger>
-        <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
-        <TabsTrigger value="find-nurse" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Search className="mr-0 md:mr-2 h-5 w-5" />New Request</TabsTrigger>
-        <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Calendar className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
-      </TabsList>
-      <TabsContent value="dashboard" className="mt-6">
-        <DashboardTab patientId={patient.id} />
-      </TabsContent>
-      <TabsContent value="overview" className="mt-6">
-        <div className="grid gap-8 md:grid-cols-2">
-          <div className="space-y-6">
-            <h3 className="font-headline text-xl font-semibold">Personal Information</h3>
-            <Separator />
-            <InfoItem icon={Calendar} label="Date of Birth" value={patient.dob} />
-            <InfoItem icon={Phone} label="Contact Number" value={patient.contact} />
-            <InfoItem icon={Mail} label="Email Address" value={patient.email} />
-          </div>
-          <div className="space-y-6">
-            <h3 className="font-headline text-xl font-semibold">Medical Details</h3>
-            <Separator />
-            <InfoItem icon={Droplets} label="Blood Type" value={patient.bloodType} />
-            <InfoItem icon={ShieldAlert} label="Allergies" value={patient.allergies} />
-            <InfoItem icon={User} label="Primary Physician" value={patient.primaryPhysician} />
-          </div>
-        </div>
-      </TabsContent>
-       <TabsContent value="find-nurse" className="mt-6">
-        <FindNurse />
-      </TabsContent>
-      <TabsContent value="history" className="mt-6">
-        <HistoryTab patientId={patient.id} />
-      </TabsContent>
+    <ShadTabs defaultValue="dashboard" className="w-full" onValueChange={setActiveTab}>
+      <Card className="overflow-hidden shadow-xl border-primary/10">
+        {activeTab === 'dashboard' && (
+          <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-4 md:p-6">
+            <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-6">
+              <Avatar className="h-24 w-24 border-4 border-white shadow-md">
+                <AvatarImage src={patient.avatarUrl} alt={`Patient ${patient.name}`} data-ai-hint="person portrait" />
+                <AvatarFallback className="text-3xl">{patient.name?.charAt(0) ?? 'P'}</AvatarFallback>
+              </Avatar>
+              <div className="mt-4 sm:mt-0">
+                <CardTitle className="font-headline text-2xl md:text-3xl text-primary">{patient.name}</CardTitle>
+                <CardDescription className="mt-1">Patient ID: {patient.id}</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+        )}
+        <CardContent className="p-4 md:p-6 md:pb-16">
+           <TabsList className="md:flex md:flex-row md:h-10 md:bg-primary/10 fixed bottom-0 left-0 right-0 z-50 flex h-16 justify-around bg-background shadow-[0_-1px_3px_rgba(0,0,0,0.1)] md:relative md:justify-start md:shadow-none md:rounded-md">
+            <TabsTrigger value="dashboard" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><LayoutDashboard className="mr-0 md:mr-2 h-5 w-5" />Dashboard</TabsTrigger>
+            <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
+            <TabsTrigger value="find-nurse" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Search className="mr-0 md:mr-2 h-5 w-5" />New Request</TabsTrigger>
+            <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Calendar className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
+          </TabsList>
+          <TabsContent value="dashboard" className="mt-6">
+            <DashboardTab patientId={patient.id} />
+          </TabsContent>
+          <TabsContent value="overview" className="mt-6">
+            <div className="grid gap-8 md:grid-cols-2">
+              <div className="space-y-6">
+                <h3 className="font-headline text-xl font-semibold">Personal Information</h3>
+                <Separator />
+                <InfoItem icon={Calendar} label="Date of Birth" value={patient.dob} />
+                <InfoItem icon={Phone} label="Contact Number" value={patient.contact} />
+                <InfoItem icon={Mail} label="Email Address" value={patient.email} />
+              </div>
+              <div className="space-y-6">
+                <h3 className="font-headline text-xl font-semibold">Medical Details</h3>
+                <Separator />
+                <InfoItem icon={Droplets} label="Blood Type" value={patient.bloodType} />
+                <InfoItem icon={ShieldAlert} label="Allergies" value={patient.allergies} />
+                <InfoItem icon={User} label="Primary Physician" value={patient.primaryPhysician} />
+              </div>
+            </div>
+          </TabsContent>
+           <TabsContent value="find-nurse" className="mt-6">
+            <FindNurse />
+          </TabsContent>
+          <TabsContent value="history" className="mt-6">
+            <HistoryTab patientId={patient.id} />
+          </TabsContent>
+        </CardContent>
+      </Card>
     </ShadTabs>
   )
 }
