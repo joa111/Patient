@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
@@ -27,6 +28,9 @@ import { sendNotification } from '@/ai/flows/send-notification-flow';
 function toSafeDate(dateValue: any): Date | null {
     if (!dateValue) {
         return null;
+    }
+    if (dateValue instanceof Date) {
+        return dateValue;
     }
     // It's already a Firestore Timestamp
     if (dateValue.toDate) {
@@ -233,7 +237,7 @@ export default function ProfilePage() {
 function PatientTabs({ patient }: { patient: Patient }) {
   return (
     <ShadTabs defaultValue="dashboard" className="w-full">
-      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto sm:h-10 bg-primary/10">
+      <TabsList className="flex flex-col h-auto sm:flex-row sm:h-10 bg-primary/10">
         <TabsTrigger value="dashboard"><LayoutDashboard className="mr-2 h-4 w-4" />Dashboard</TabsTrigger>
         <TabsTrigger value="overview"><User className="mr-2 h-4 w-4" />Overview</TabsTrigger>
         <TabsTrigger value="find-nurse"><Search className="mr-2 h-4 w-4" />New Request</TabsTrigger>
@@ -418,14 +422,14 @@ function RequestCard({ request }: { request: ServiceRequest }) {
 
     return (
         <Card className="hover:shadow-md transition-shadow">
-            <CardHeader>
+            <CardHeader className="p-4">
                 <CardTitle className="flex items-center justify-between flex-wrap gap-2">
                     <span className="text-xl">{request.serviceDetails.type}</span>
                     <span className={`text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground`}>{request.status}</span>
                 </CardTitle>
                 <CardDescription>{scheduledTime}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0">
                 <div className="flex items-center text-muted-foreground mt-2">
                     <User className="mr-2 h-4 w-4" />
                     <span>{nurseName}</span>
