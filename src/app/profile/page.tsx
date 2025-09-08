@@ -8,9 +8,9 @@ import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp, 
 import { db, auth } from '@/lib/firebase';
 import { onAuthStateChanged, User as AuthUser } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard, FileClock, Info } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,6 +19,16 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import type { Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 import { sendNotification } from '@/ai/flows/send-notification-flow';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 /**
  * Safely converts a Firestore Timestamp or a date-like object to a JavaScript Date.
@@ -51,7 +61,7 @@ function toSafeDate(dateValue: any): Date | null {
 }
 
 
-function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined | string[] }) {
+function InfoItem({ icon: Icon, label, value }: { icon: React.ElementType, label: string; value: string | undefined | string[] | number }) {
   if (!value && value !== 0) return null;
   const displayValue = Array.isArray(value) ? value.join(', ') : value;
   return (
@@ -246,7 +256,7 @@ function PatientTabs({ patient }: { patient: Patient }) {
             <TabsTrigger value="dashboard" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><LayoutDashboard className="mr-0 md:mr-2 h-5 w-5" />Dashboard</TabsTrigger>
             <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
             <TabsTrigger value="new-request" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Search className="mr-0 md:mr-2 h-5 w-5" />New Request</TabsTrigger>
-            <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Calendar className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
+            <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md-h-auto"><FileClock className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="mt-6">
             <DashboardTab patientId={patient.id} />
@@ -318,6 +328,7 @@ function useServiceRequests(patientId: string) {
 
 function DashboardTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
+  const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
 
   const { upcoming, active } = serviceRequests.reduce((acc, req) => {
     const reqDate = toSafeDate(req.serviceDetails.scheduledDateTime);
@@ -352,8 +363,8 @@ function DashboardTab({ patientId }: { patientId: string }) {
       <div>
         <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Active Requests</h3>
         {active.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {active.map(req => (<RequestCard key={req.id} request={req} />))}
+          <div className="space-y-4">
+            {active.map(req => (<RequestCard key={req.id} request={req} onSelect={() => setSelectedRequest(req)} />))}
           </div>
         ) : (
           <p className="text-muted-foreground">You have no active service requests.</p>
@@ -361,25 +372,30 @@ function DashboardTab({ patientId }: { patientId: string }) {
       </div>
        <Separator />
       <div>
-        <h3 className="font-headline text-2xl font-semibold mb-4 text-primary">Upcoming Appointments</h3>
+        <h3 className="font-headline text-2xl font-semibold my-4 text-primary">Upcoming Appointments</h3>
         {upcoming.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            {upcoming.map(req => (<RequestCard key={req.id} request={req} />))}
+          <div className="space-y-4">
+            {upcoming.map(req => (<RequestCard key={req.id} request={req} onSelect={() => setSelectedRequest(req)} />))}
           </div>
         ) : (
           <p className="text-muted-foreground">You have no upcoming appointments.</p>
         )}
       </div>
+      {selectedRequest && (
+        <RequestDetailsDialog 
+          request={selectedRequest}
+          onOpenChange={(isOpen) => !isOpen && setSelectedRequest(null)}
+        />
+      )}
     </div>
   );
 }
 
 function HistoryTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
+  const [selectedRequest, setSelectedRequest] = useState<ServiceRequest | null>(null);
 
   const pastRequests = serviceRequests.filter(req => {
-    const reqDate = toSafeDate(req.serviceDetails.scheduledDateTime);
-    if (!reqDate) return false;
     return ['completed', 'cancelled', 'declined'].includes(req.status);
   });
 
@@ -397,19 +413,63 @@ function HistoryTab({ patientId }: { patientId: string }) {
 
   return (
       <div className="space-y-4">
-          {pastRequests.map(req => <RequestCard key={req.id} request={req} />)}
+          {pastRequests.map(req => <RequestCard key={req.id} request={req} onSelect={() => setSelectedRequest(req)} />)}
+          {selectedRequest && (
+            <RequestDetailsDialog 
+              request={selectedRequest}
+              onOpenChange={(isOpen) => !isOpen && setSelectedRequest(null)}
+            />
+           )}
       </div>
   );
 }
 
-function RequestCard({ request }: { request: ServiceRequest }) {
+function RequestCard({ request, onSelect }: { request: ServiceRequest, onSelect: () => void }) {
+    const scheduledDate = toSafeDate(request.serviceDetails.scheduledDateTime);
+    const scheduledTime = scheduledDate ? format(scheduledDate, "eee, MMM d, yyyy") : "Not scheduled";
+    const statusColors = {
+        'completed': 'bg-green-100 text-green-800 border-green-200',
+        'cancelled': 'bg-red-100 text-red-800 border-red-200',
+        'declined': 'bg-red-100 text-red-800 border-red-200',
+        'confirmed': 'bg-blue-100 text-blue-800 border-blue-200',
+        'pending-response': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        'finding-nurses': 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        'in-progress': 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    };
+    const statusColor = statusColors[request.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800 border-gray-200';
+
+    return (
+        <Card className="hover:shadow-md transition-shadow border rounded-lg overflow-hidden">
+            <CardContent className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                     <div className="flex flex-col items-center justify-center bg-muted/50 p-3 rounded-md h-16 w-16">
+                         <span className="font-bold text-primary text-xl">{scheduledDate ? format(scheduledDate, 'd') : '--'}</span>
+                         <span className="text-xs text-muted-foreground">{scheduledDate ? format(scheduledDate, 'MMM') : 'N/A'}</span>
+                     </div>
+                     <div>
+                        <p className="font-semibold capitalize">{request.serviceDetails.type.replace('-', ' ')}</p>
+                        <p className="text-sm text-muted-foreground">{scheduledTime}</p>
+                     </div>
+                </div>
+                <div className="flex items-center gap-4">
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusColor}`}>{request.status}</span>
+                    <Button variant="outline" size="sm" onClick={onSelect}>
+                        <Info className="mr-2 h-4 w-4" />Details
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceRequest, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
 
     const nurseName = request.matching.selectedNurseId 
         ? request.matching.availableNurses.find(n => n.nurseId === request.matching.selectedNurseId)?.fullName
         : "Finding Nurse...";
     
-    const onNotify = async (type: 'confirmation' | 'en_route') => {
+    const onNotify = async (type: 'en_route') => {
         toast({ title: 'Sending notification...' });
         const result = await sendNotification({ 
             requestId: request.id, 
@@ -426,47 +486,50 @@ function RequestCard({ request }: { request: ServiceRequest }) {
     const scheduledDate = toSafeDate(request.serviceDetails.scheduledDateTime);
     const scheduledTime = scheduledDate ? format(scheduledDate, "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
 
-    const statusColors = {
-        'completed': 'bg-green-100 text-green-800',
-        'cancelled': 'bg-red-100 text-red-800',
-        'declined': 'bg-red-100 text-red-800',
-        'confirmed': 'bg-blue-100 text-blue-800',
-        'pending-response': 'bg-yellow-100 text-yellow-800',
-        'finding-nurses': 'bg-yellow-100 text-yellow-800',
-        'in-progress': 'bg-indigo-100 text-indigo-800',
-    };
-    const statusColor = statusColors[request.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
-
     return (
-        <Card className="hover:shadow-md transition-shadow border rounded-lg overflow-hidden">
-            <CardHeader className="p-4 bg-muted/30 border-b">
-                <div className="flex items-center justify-between gap-2">
-                     <CardTitle className="text-lg capitalize">{request.serviceDetails.type.replace('-', ' ')}</CardTitle>
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColor}`}>{request.status}</span>
+       <AlertDialog open={true} onOpenChange={onOpenChange}>
+            <AlertDialogContent className="max-w-2xl">
+                <AlertDialogHeader>
+                    <AlertDialogTitle className="text-2xl capitalize">{request.serviceDetails.type.replace('-', ' ')}</AlertDialogTitle>
+                    <AlertDialogDescription>{scheduledTime}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="py-4 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                           <h4 className="font-semibold text-primary">Details</h4>
+                           <InfoItem icon={User} label="Assigned Nurse" value={nurseName} />
+                           <InfoItem icon={MapPin} label="Location" value={request.serviceDetails.location.address} />
+                           <InfoItem icon={Clock} label="Duration" value={`${request.serviceDetails.duration} hour(s)`} />
+                           {request.serviceDetails.specialRequirements && <InfoItem icon={FileText} label="Special Requirements" value={request.serviceDetails.specialRequirements} />}
+                        </div>
+                         <div className="space-y-4">
+                            <h4 className="font-semibold text-primary">Status & Actions</h4>
+                            <InfoItem icon={Info} label="Status" value={request.status} />
+                             {request.status === 'confirmed' && (
+                                <Button variant="outline" size="sm" className="w-full" onClick={() => onNotify('en_route')}>
+                                    <Bell className="mr-2 h-4 w-4" /> Notify Nurse I'm Ready
+                                </Button>
+                            )}
+                             {request.status === 'pending-response' && (
+                                 <div className="flex items-center text-amber-600 mt-2 text-sm font-medium p-3 bg-amber-50 rounded-md">
+                                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>
+                                    <span>Awaiting nurse response...</span>
+                                 </div>
+                            )}
+                         </div>
+                    </div>
+                    <Separator />
+                     <div className="space-y-4">
+                        <h4 className="font-semibold text-primary">Payment</h4>
+                        <InfoItem icon={Info} label="Estimated Cost" value={`$${request.payment.nursePayment.amount.toFixed(2)}`} />
+                        <InfoItem icon={Info} label="Platform Fee" value={`$${request.payment.platformFee.toFixed(2)}`} />
+                    </div>
                 </div>
-                <CardDescription className="text-sm pt-1">{scheduledTime}</CardDescription>
-            </CardHeader>
-            <CardContent className="p-4 space-y-3">
-                <div className="flex items-center text-muted-foreground text-sm">
-                    <User className="mr-3 h-4 w-4" />
-                    <span>{nurseName}</span>
-                </div>
-                 <div className="flex items-center text-muted-foreground text-sm">
-                    <MapPin className="mr-3 h-4 w-4" />
-                    <span>{request.serviceDetails.location.address}</span>
-                </div>
-                {request.status === 'confirmed' && (
-                    <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => onNotify('en_route')}>
-                        <Bell className="mr-2 h-4 w-4" /> Notify Nurse I'm Ready
-                    </Button>
-                )}
-                 {request.status === 'pending-response' && (
-                     <div className="flex items-center text-amber-600 mt-2 text-sm font-medium">
-                        <LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>
-                        <span>Awaiting nurse response...</span>
-                     </div>
-                )}
-            </CardContent>
-        </Card>
-    )
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Close</AlertDialogCancel>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+    );
 }
+
