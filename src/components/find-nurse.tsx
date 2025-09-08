@@ -352,7 +352,7 @@ export function FindNurse() {
                                     </div>
                                 </div>
                                 <div className="w-full sm:w-auto text-right flex flex-col items-end gap-2">
-                                    <p className="text-xl font-semibold">${nurse.estimatedCost.toFixed(2)}<span className="text-sm font-normal text-muted-foreground"> (est.)</span></p>
+                                    <p className="text-xl font-semibold">₹{nurse.estimatedCost.toFixed(2)}<span className="text-sm font-normal text-muted-foreground"> (est.)</span></p>
                                     <div className="flex items-center gap-2">
                                       <p className="text-sm font-medium text-muted-foreground">Match Score</p>
                                       <Progress value={nurse.matchScore} className="w-24 h-2" />
@@ -394,7 +394,7 @@ export function FindNurse() {
                         </div>
                         <div className="text-right border-t border-dashed pt-4">
                             <p className="text-sm text-muted-foreground">Estimated Total</p>
-                            <p className="text-3xl font-bold text-primary">${selectedNurse.estimatedCost.toFixed(2)}</p>
+                            <p className="text-3xl font-bold text-primary">₹{selectedNurse.estimatedCost.toFixed(2)}</p>
                             <p className="text-xs text-muted-foreground mt-1">You will not be charged until the service is confirmed by the nurse.</p>
                         </div>
                         

@@ -256,7 +256,7 @@ function PatientTabs({ patient }: { patient: Patient }) {
             <TabsTrigger value="dashboard" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><LayoutDashboard className="mr-0 md:mr-2 h-5 w-5" />Dashboard</TabsTrigger>
             <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
             <TabsTrigger value="new-request" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Search className="mr-0 md:mr-2 h-5 w-5" />New Request</TabsTrigger>
-            <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md-h-auto"><FileClock className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
+            <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><FileClock className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="mt-6">
             <DashboardTab patientId={patient.id} />
@@ -521,8 +521,8 @@ function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceReque
                     <Separator />
                      <div className="space-y-4">
                         <h4 className="font-semibold text-primary">Payment</h4>
-                        <InfoItem icon={Info} label="Estimated Cost" value={`$${request.payment.nursePayment.amount.toFixed(2)}`} />
-                        <InfoItem icon={Info} label="Platform Fee" value={`$${request.payment.platformFee.toFixed(2)}`} />
+                        <InfoItem icon={Info} label="Estimated Cost" value={`₹${request.payment.nursePayment.amount.toFixed(2)}`} />
+                        <InfoItem icon={Info} label="Platform Fee" value={`₹${request.payment.platformFee.toFixed(2)}`} />
                     </div>
                 </div>
                 <AlertDialogFooter>
