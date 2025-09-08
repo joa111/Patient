@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -372,7 +373,7 @@ export function FindNurse() {
                             <p className="text-xs text-muted-foreground mt-1">You will not be charged until the service is confirmed by the nurse.</p>
                         </div>
                         
-                        <div className="flex gap-4 pt-4">
+                        <div className="flex flex-col sm:flex-row gap-4 pt-4">
                            <Button variant="outline" className="w-full" onClick={() => setStep('selecting')}>Back to List</Button>
                            <Button className="w-full" onClick={handleConfirmBooking} disabled={loading}>
                                {loading ? <LoaderCircle className="animate-spin" /> : 'Send Request to Nurse'} <ArrowRight className="ml-2 h-5 w-5"/>

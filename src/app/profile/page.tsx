@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
@@ -151,20 +152,20 @@ function ProfilePageContent() {
 
   return (
     <Card className="overflow-hidden shadow-xl border-primary/10">
-      <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-6">
+      <CardHeader className="bg-gradient-to-br from-primary/10 to-background p-4 md:p-6">
         <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-6">
           <Avatar className="h-24 w-24 border-4 border-white shadow-md">
             <AvatarImage src={patient.avatarUrl} alt={`Patient ${patient.name}`} data-ai-hint="person portrait" />
-            <AvatarFallback className="text-3xl">{patient.name?.charAt(0)}</AvatarFallback>
+            <AvatarFallback className="text-3xl">{patient.name?.charAt(0) ?? 'P'}</AvatarFallback>
           </Avatar>
           <div className="mt-4 sm:mt-0">
-            <CardTitle className="font-headline text-3xl text-primary">{patient.name}</CardTitle>
+            <CardTitle className="font-headline text-2xl md:text-3xl text-primary">{patient.name}</CardTitle>
             <CardDescription className="mt-1">Patient ID: {patient.id}</CardDescription>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="p-6">
+      <CardContent className="p-4 md:p-6">
         <PatientTabs patient={patient} />
       </CardContent>
     </Card>
@@ -215,7 +216,7 @@ export default function ProfilePage() {
           </div>
           <Button variant="ghost" onClick={handleLogout}>
             <LogOut className="mr-2 h-4 w-4" />
-            Log Out
+            <span className="hidden sm:inline">Log Out</span>
           </Button>
         </div>
       </header>
@@ -232,7 +233,7 @@ export default function ProfilePage() {
 function PatientTabs({ patient }: { patient: Patient }) {
   return (
     <ShadTabs defaultValue="dashboard" className="w-full">
-      <TabsList className="grid w-full grid-cols-4 bg-primary/10">
+      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto sm:h-10 bg-primary/10">
         <TabsTrigger value="dashboard"><LayoutDashboard className="mr-2 h-4 w-4" />Dashboard</TabsTrigger>
         <TabsTrigger value="overview"><User className="mr-2 h-4 w-4" />Overview</TabsTrigger>
         <TabsTrigger value="find-nurse"><Search className="mr-2 h-4 w-4" />New Request</TabsTrigger>
@@ -366,7 +367,8 @@ function HistoryTab({ patientId }: { patientId: string }) {
   const { serviceRequests, loading } = useServiceRequests(patientId);
 
   const pastRequests = serviceRequests.filter(req => {
-     if (!req.serviceDetails.scheduledDateTime) return false;
+    const reqDate = toSafeDate(req.serviceDetails.scheduledDateTime);
+    if (!reqDate) return false;
     return ['completed', 'cancelled', 'declined'].includes(req.status);
   });
 
@@ -417,7 +419,7 @@ function RequestCard({ request }: { request: ServiceRequest }) {
     return (
         <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
                     <span className="text-xl">{request.serviceDetails.type}</span>
                     <span className={`text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground`}>{request.status}</span>
                 </CardTitle>
