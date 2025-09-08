@@ -426,34 +426,44 @@ function RequestCard({ request }: { request: ServiceRequest }) {
     const scheduledDate = toSafeDate(request.serviceDetails.scheduledDateTime);
     const scheduledTime = scheduledDate ? format(scheduledDate, "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
 
+    const statusColors = {
+        'completed': 'bg-green-100 text-green-800',
+        'cancelled': 'bg-red-100 text-red-800',
+        'declined': 'bg-red-100 text-red-800',
+        'confirmed': 'bg-blue-100 text-blue-800',
+        'pending-response': 'bg-yellow-100 text-yellow-800',
+        'finding-nurses': 'bg-yellow-100 text-yellow-800',
+        'in-progress': 'bg-indigo-100 text-indigo-800',
+    };
+    const statusColor = statusColors[request.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800';
 
     return (
-        <Card className="hover:shadow-md transition-shadow">
-            <CardHeader className="p-4">
-                <CardTitle className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="text-xl">{request.serviceDetails.type}</span>
-                    <span className={`text-sm font-medium px-3 py-1 rounded-full bg-accent/20 text-accent-foreground`}>{request.status}</span>
-                </CardTitle>
-                <CardDescription>{scheduledTime}</CardDescription>
+        <Card className="hover:shadow-md transition-shadow border rounded-lg overflow-hidden">
+            <CardHeader className="p-4 bg-muted/30 border-b">
+                <div className="flex items-center justify-between gap-2">
+                     <CardTitle className="text-lg capitalize">{request.serviceDetails.type.replace('-', ' ')}</CardTitle>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColor}`}>{request.status}</span>
+                </div>
+                <CardDescription className="text-sm pt-1">{scheduledTime}</CardDescription>
             </CardHeader>
-            <CardContent className="p-4 pt-0">
-                <div className="flex items-center text-muted-foreground mt-2">
-                    <User className="mr-2 h-4 w-4" />
+            <CardContent className="p-4 space-y-3">
+                <div className="flex items-center text-muted-foreground text-sm">
+                    <User className="mr-3 h-4 w-4" />
                     <span>{nurseName}</span>
                 </div>
-                 <div className="flex items-center text-muted-foreground mt-2">
-                    <MapPin className="mr-2 h-4 w-4" />
+                 <div className="flex items-center text-muted-foreground text-sm">
+                    <MapPin className="mr-3 h-4 w-4" />
                     <span>{request.serviceDetails.location.address}</span>
                 </div>
                 {request.status === 'confirmed' && (
-                    <Button variant="outline" size="sm" className="mt-4" onClick={() => onNotify('en_route')}>
+                    <Button variant="outline" size="sm" className="mt-2 w-full" onClick={() => onNotify('en_route')}>
                         <Bell className="mr-2 h-4 w-4" /> Notify Nurse I'm Ready
                     </Button>
                 )}
                  {request.status === 'pending-response' && (
-                     <div className="flex items-center text-amber-600 mt-4">
+                     <div className="flex items-center text-amber-600 mt-2 text-sm font-medium">
                         <LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>
-                        <span>Waiting for nurse to respond...</span>
+                        <span>Awaiting nurse response...</span>
                      </div>
                 )}
             </CardContent>
