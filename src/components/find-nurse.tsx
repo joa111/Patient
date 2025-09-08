@@ -5,9 +5,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
-import { LoaderCircle, MapPin, Briefcase, AlertTriangle, Star, CheckCircle, ArrowRight } from 'lucide-react';
+import { LoaderCircle, MapPin, Briefcase, AlertTriangle, Star, CheckCircle, ArrowRight, CalendarIcon, ClockIcon, ClipboardPlus, User, Plus, Search } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -231,78 +231,103 @@ export function FindNurse() {
     switch (step) {
       case 'request':
         return (
-          <div>
-            <h3 className="font-headline text-xl font-semibold mb-4">Request a Service</h3>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(findMatchingNurses)} className="space-y-6">
-                <FormField control={form.control} name="serviceType" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Service Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger><SelectValue placeholder="Select a service" /></SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="general">General Check-up</SelectItem>
-                        <SelectItem value="wound-care">Wound Care</SelectItem>
-                        <SelectItem value="injection">Injection Administration</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FormField control={form.control} name="scheduledDateTime" render={({ field }) => (
-                       <FormItem className="flex flex-col">
-                        <FormLabel>Appointment Date & Time</FormLabel>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <FormControl>
-                              <Button variant={"outline"}>
-                                {field.value ? format(field.value, "PPpp") : <span>Pick a date and time</span>}
-                              </Button>
-                            </FormControl>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar mode="single" selected={field.value} onSelect={field.onChange} />
-                             <div className="p-2 border-t border-border">
-                               <Input type="time" onChange={(e) => {
-                                   const newDate = field.value ? new Date(field.value) : new Date();
-                                   const [hours, minutes] = e.target.value.split(':');
-                                   newDate.setHours(parseInt(hours, 10), parseInt(minutes, 10));
-                                   field.onChange(newDate);
-                               }} />
-                             </div>
-                          </PopoverContent>
-                        </Popover>
+          <Card className="border-0 shadow-none">
+            <CardContent className="p-0">
+                <Form {...form}>
+                <form onSubmit={form.handleSubmit(findMatchingNurses)} className="space-y-8">
+                    <FormField control={form.control} name="serviceType" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className="text-base">What service do you need?</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                            <div className="relative">
+                                <ClipboardPlus className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                <SelectTrigger className="pl-10 h-12 text-base"><SelectValue placeholder="Select a service" /></SelectTrigger>
+                            </div>
+                        </FormControl>
+                        <SelectContent>
+                            <SelectItem value="general">General Check-up</SelectItem>
+                            <SelectItem value="wound-care">Wound Care</SelectItem>
+                            <SelectItem value="injection">Injection Administration</SelectItem>
+                        </SelectContent>
+                        </Select>
                         <FormMessage />
-                      </FormItem>
+                    </FormItem>
                     )} />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <FormField control={form.control} name="scheduledDateTime" render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel className="text-base">When do you need it?</FormLabel>
+                            <Popover>
+                            <PopoverTrigger asChild>
+                                <FormControl>
+                                <Button variant={"outline"} className="h-12 text-base justify-start font-normal text-left pl-10 relative">
+                                    <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                    {field.value ? format(field.value, "PP") : <span>Pick a date</span>}
+                                </Button>
+                                </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar mode="single" selected={field.value} onSelect={field.onChange} initialFocus />
+                            </PopoverContent>
+                            </Popover>
+                            <FormMessage />
+                        </FormItem>
+                        )} />
+                        <FormField control={form.control} name="scheduledDateTime" render={({ field }) => (
+                            <FormItem className="flex flex-col">
+                                <FormLabel className="text-base">At what time?</FormLabel>
+                                <FormControl>
+                                    <div className="relative">
+                                        <ClockIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                        <Input
+                                            type="time"
+                                            className="h-12 text-base pl-10"
+                                            onChange={(e) => {
+                                                const newDate = field.value ? new Date(field.value) : new Date();
+                                                const [hours, minutes] = e.target.value.split(':');
+                                                newDate.setHours(parseInt(hours, 10), parseInt(minutes, 10));
+                                                field.onChange(newDate);
+                                            }}
+                                            value={field.value ? format(field.value, "HH:mm") : ""}
+                                        />
+                                    </div>
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                    </div>
                      <FormField control={form.control} name="duration" render={({ field }) => (
                        <FormItem>
-                        <FormLabel>Duration (hours)</FormLabel>
+                        <FormLabel className="text-base">Estimated Duration</FormLabel>
                         <FormControl>
-                            <Input type="number" min="1" {...field}/>
+                            <div className="relative">
+                                <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                                <Input type="number" min="1" {...field} className="h-12 text-base pl-10" placeholder="e.g., 2 hours"/>
+                            </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
-                </div>
-                <FormField control={form.control} name="specialRequirements" render={({ field }) => (
-                   <FormItem>
-                    <FormLabel>Special Requirements or Notes</FormLabel>
-                    <FormControl>
-                        <Textarea placeholder="Anything the nurse should know..." {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <Button type="submit" className="w-full text-lg py-6" disabled={loading}>
-                  {loading ? <LoaderCircle className="animate-spin" /> : 'Find Matching Nurses'}
-                </Button>
-              </form>
-            </Form>
-          </div>
+                    <FormField control={form.control} name="specialRequirements" render={({ field }) => (
+                    <FormItem>
+                        <FormLabel className="text-base">Any special notes?</FormLabel>
+                        <FormControl>
+                             <div className="relative">
+                                <Plus className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
+                                <Textarea placeholder="e.g., 'Patient is hard of hearing', 'Free parking available'" {...field} className="pl-10 text-base" rows={3}/>
+                            </div>
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                    )} />
+                    <Button type="submit" className="w-full text-lg py-7" disabled={loading}>
+                    {loading ? <LoaderCircle className="animate-spin" /> : <> <Search className="mr-2 h-5 w-5"/>Find Matching Nurses</>}
+                    </Button>
+                </form>
+                </Form>
+            </CardContent>
+          </Card>
         );
       
       case 'selecting':
