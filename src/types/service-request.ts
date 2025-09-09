@@ -85,6 +85,11 @@ export interface ServiceRequest {
       paid: boolean;
     };
   };
+  review?: {
+    rating: number;
+    comment: string;
+    submittedAt: Timestamp;
+  };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

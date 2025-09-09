@@ -9,7 +9,7 @@ import { onAuthStateChanged, User as AuthUser } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard, FileClock, Info, Settings, UserCog, HeartPulse, SlidersHorizontal, CircleDollarSign } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard, FileClock, Info, Settings, UserCog, HeartPulse, SlidersHorizontal, CircleDollarSign, Star, CheckCircle } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +35,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
+import { completeServiceRequest, submitReview } from '@/lib/matching-service';
+import { Textarea } from '@/components/ui/textarea';
 
 
 /**
@@ -474,6 +476,9 @@ function RequestCard({ request, onSelect }: { request: ServiceRequest, onSelect:
 }
 
 function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceRequest, onOpenChange: (open: boolean) => void }) {
+    const [rating, setRating] = useState(request.review?.rating ?? 0);
+    const [review, setReview] = useState(request.review?.comment ?? "");
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const { toast } = useToast();
 
     const nurseName = request.matching.selectedNurseId 
@@ -494,6 +499,33 @@ function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceReque
         }
     };
     
+    const onComplete = async () => {
+        toast({ title: 'Completing service...' });
+        try {
+            await completeServiceRequest(request.id);
+            toast({ title: 'Service Marked as Complete!', description: 'Please take a moment to rate your experience.' });
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not complete the service. ' + error.message });
+        }
+    };
+
+    const handleReviewSubmit = async () => {
+        if (rating === 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Please select a star rating.' });
+            return;
+        }
+        setIsSubmitting(true);
+        try {
+            await submitReview(request.id, rating, review);
+            toast({ title: 'Review Submitted!', description: 'Thank you for your feedback.' });
+            onOpenChange(false);
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not submit review. ' + error.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const scheduledDate = toSafeDate(request.serviceDetails.scheduledDateTime);
     const scheduledTime = scheduledDate ? format(scheduledDate, "EEEE, MMMM do, yyyy 'at' p") : "Not scheduled";
 
@@ -521,6 +553,11 @@ function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceReque
                                     <Bell className="mr-2 h-4 w-4" /> Notify Nurse I'm Ready
                                 </Button>
                             )}
+                            {request.status === 'in-progress' && (
+                                <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={onComplete}>
+                                    <CheckCircle className="mr-2 h-4 w-4" /> Mark as Complete
+                                </Button>
+                            )}
                              {request.status === 'pending-response' && (
                                  <div className="flex items-center text-amber-600 mt-2 text-sm font-medium p-3 bg-amber-50 rounded-md">
                                     <LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>
@@ -535,6 +572,45 @@ function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceReque
                         <InfoItem icon={Info} label="Estimated Cost" value={`₹${request.payment.nursePayment.amount.toFixed(2)}`} />
                         <InfoItem icon={Info} label="Platform Fee" value={`₹${request.payment.platformFee.toFixed(2)}`} />
                     </div>
+                    {request.status === 'completed' && (
+                      <>
+                        <Separator />
+                        <div className="space-y-4">
+                          <h4 className="font-semibold text-primary">Rate Your Experience</h4>
+                          {request.review ? (
+                            <div>
+                              <div className="flex items-center gap-1">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star key={i} className={`h-6 w-6 ${i < request.review!.rating ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground'}`} />
+                                ))}
+                              </div>
+                              <p className="mt-2 text-muted-foreground italic">"{request.review.comment}"</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-2">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`h-7 w-7 cursor-pointer transition-colors ${i < rating ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground hover:text-amber-300'}`}
+                                    onClick={() => setRating(i + 1)}
+                                  />
+                                ))}
+                              </div>
+                              <Textarea
+                                placeholder="Tell us about your experience..."
+                                value={review}
+                                onChange={(e) => setReview(e.target.value)}
+                                className="min-h-[100px]"
+                              />
+                              <Button onClick={handleReviewSubmit} disabled={isSubmitting}>
+                                {isSubmitting ? <LoaderCircle className="animate-spin" /> : 'Submit Review'}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                 </div>
                 <AlertDialogFooter>
                     <AlertDialogCancel>Close</AlertDialogCancel>

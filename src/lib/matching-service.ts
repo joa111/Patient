@@ -128,6 +128,44 @@ export async function cancelServiceRequest(requestId: string): Promise<void> {
     console.log(`Service request ${requestId} has been cancelled by the user.`);
 }
 
+/**
+ * Marks a service request as completed by the patient.
+ * This runs on the client.
+ * @param requestId - The ID of the service request to complete.
+ */
+export async function completeServiceRequest(requestId: string): Promise<void> {
+    const requestRef = doc(db, 'serviceRequests', requestId);
+    await updateDoc(requestRef, {
+        status: 'completed',
+        updatedAt: Timestamp.now(),
+    });
+    console.log(`Service request ${requestId} has been marked as completed.`);
+}
+
+/**
+ * Submits a rating and review for a completed service request.
+ * This runs on the client.
+ * @param requestId - The ID of the service request.
+ * @param rating - A rating from 1 to 5.
+ * @param review - A text review.
+ */
+export async function submitReview(requestId: string, rating: number, review: string): Promise<void> {
+    const requestRef = doc(db, 'serviceRequests', requestId);
+    const requestSnap = await getDoc(requestRef);
+    if (!requestSnap.exists()) {
+        throw new Error("Service request not found.");
+    }
+    // In a real app, we would also update the nurse's average rating in their profile document.
+    // This would likely be done in a Cloud Function for consistency and to prevent data tampering.
+    await updateDoc(requestRef, {
+        'review.rating': rating,
+        'review.comment': review,
+        'review.submittedAt': Timestamp.now(),
+        updatedAt: Timestamp.now(),
+    });
+    console.log(`Review submitted for request ${requestId}.`);
+}
+
 
 /**
  * Handles the response from a nurse (accepted or declined).
