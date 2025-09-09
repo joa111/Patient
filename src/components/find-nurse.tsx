@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
-import { LoaderCircle, MapPin, Briefcase, AlertTriangle, Star, CheckCircle, ArrowRight, CalendarIcon, ClockIcon, ClipboardPlus, User, Plus, Search } from 'lucide-react';
+import { LoaderCircle, MapPin, Briefcase, AlertTriangle, Star, CheckCircle, ArrowRight, CalendarIcon, ClockIcon, ClipboardPlus, User, Plus, Search, X } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -34,7 +34,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Progress } from '@/components/ui/progress';
 import type { Patient, ServiceRequest, MatchedNurse, ServiceRequestInput } from '@/types/service-request';
-import { createServiceRequest, offerServiceToNurse } from '@/lib/matching-service';
+import { createServiceRequest, offerServiceToNurse, cancelServiceRequest } from '@/lib/matching-service';
 
 
 const serviceRequestSchema = z.object({
@@ -62,6 +62,7 @@ export function FindNurse() {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const form = useForm<z.infer<typeof serviceRequestSchema>>({
     resolver: zodResolver(serviceRequestSchema),
@@ -173,12 +174,13 @@ export function FindNurse() {
                 });
                 setStep('confirmed');
                 setLoading(false);
-            } else if (data.status === 'cancelled' || data.status === 'declined') {
+            } else if (data.status === 'declined') {
                  toast({
                     variant: "destructive",
-                    title: "Request Declined",
+                    title: "Nurse Unavailable",
                     description: `Unfortunately, your request was not accepted. Please try again.`,
                 });
+                setError("The nurse was unavailable. Please try finding another match.");
                 setStep('failed');
                 setLoading(false);
             } else if (data.status === 'pending-response' && data.matching.responseDeadline) {
@@ -189,6 +191,7 @@ export function FindNurse() {
                         title: "Request Expired",
                         description: "The nurse did not respond in time. Please try making a new request.",
                     });
+                    setError("The nurse did not respond in time. Please try finding another match.");
                     setStep('failed');
                     setLoading(false);
                 }
@@ -198,6 +201,31 @@ export function FindNurse() {
 
     return () => unsubscribe();
   }, [serviceRequestId, bestMatch, toast]);
+  
+  const handleCancelSearch = async () => {
+    if (!serviceRequestId) return;
+    setIsCancelling(true);
+    try {
+        await cancelServiceRequest(serviceRequestId);
+        toast({
+            title: "Search Cancelled",
+            description: "Your service request has been cancelled.",
+        });
+        setStep('request');
+        setServiceRequestId(null);
+        setBestMatch(null);
+        setError(null);
+    } catch (err: any) {
+        console.error("Failed to cancel search:", err);
+        toast({
+            variant: "destructive",
+            title: "Cancellation Failed",
+            description: err.message,
+        });
+    } finally {
+        setIsCancelling(false);
+    }
+  };
 
 
   const renderContent = () => {
@@ -318,6 +346,9 @@ export function FindNurse() {
                 <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {bestMatch?.fullName || 'the best available nurse'}. We'll notify you here as soon as they respond.</p>
                 <Progress value={80} className="w-full max-w-sm mx-auto mt-8" />
                  <p className="text-sm text-muted-foreground mt-2">The request will expire in 15 minutes.</p>
+                 <Button variant="ghost" className="mt-8" onClick={handleCancelSearch} disabled={isCancelling}>
+                    {isCancelling ? <LoaderCircle className="animate-spin" /> : <><X className="mr-2 h-4 w-4"/>Cancel Search</>}
+                 </Button>
             </div>
         );
       
@@ -337,7 +368,7 @@ export function FindNurse() {
          return (
             <div className="text-center py-12 flex flex-col items-center">
                 <AlertTriangle className="h-16 w-16 text-destructive mx-auto"/>
-                <h3 className="font-headline text-3xl font-semibold mt-6">Request Failed</h3>
+                <h3 className="font-headline text-3xl font-semibold mt-6">Unable to Find Nurse</h3>
                 <p className="text-muted-foreground mt-2 max-w-md">{error || "Something went wrong. Please try again."}</p>
                 <Button variant="outline" className="mt-8" onClick={() => { setError(null); setStep('request'); }}>
                     Try Again

@@ -113,6 +113,21 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
   console.log(`Offer sent to nurse ${nurseId} for request ${requestId}`);
 }
 
+/**
+ * Cancels a service request.
+ * This runs on the client.
+ * @param requestId - The ID of the service request to cancel.
+ * @returns A promise that resolves when the update is complete.
+ */
+export async function cancelServiceRequest(requestId: string): Promise<void> {
+    const requestRef = doc(db, 'serviceRequests', requestId);
+    await updateDoc(requestRef, {
+        status: 'cancelled',
+        updatedAt: Timestamp.now(),
+    });
+    console.log(`Service request ${requestId} has been cancelled by the user.`);
+}
+
 
 /**
  * Handles the response from a nurse (accepted or declined).
