@@ -215,6 +215,7 @@ export function FindNurse() {
         setServiceRequestId(null);
         setBestMatch(null);
         setError(null);
+        setLoading(false);
     } catch (err: any) {
         console.error("Failed to cancel search:", err);
         toast({
