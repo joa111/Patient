@@ -1,16 +1,15 @@
 
-
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, Timestamp, setDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { onAuthStateChanged, User as AuthUser } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard, FileClock, Info } from 'lucide-react';
+import { LogOut, User, Heart, Droplets, Calendar, Mail, Phone, ShieldAlert, FileText, LoaderCircle, AlertTriangle, Search, Briefcase, Clock, MapPin, Bell, LayoutDashboard, FileClock, Info, Settings, UserCog, HeartPulse, SlidersHorizontal, CircleDollarSign } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs as ShadTabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,7 +27,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+} from "@/components/ui/alert-dialog";
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
+import { Checkbox } from '@/components/ui/checkbox';
+
 
 /**
  * Safely converts a Firestore Timestamp or a date-like object to a JavaScript Date.
@@ -257,6 +264,7 @@ function PatientTabs({ patient }: { patient: Patient }) {
             <TabsTrigger value="overview" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><User className="mr-0 md:mr-2 h-5 w-5" />Overview</TabsTrigger>
             <TabsTrigger value="new-request" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Search className="mr-0 md:mr-2 h-5 w-5" />New Request</TabsTrigger>
             <TabsTrigger value="history" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><FileClock className="mr-0 md:mr-2 h-5 w-5" />History</TabsTrigger>
+            <TabsTrigger value="settings" className="flex-col px-2 h-full md:flex-row md:w-auto md:h-auto"><Settings className="mr-0 md:mr-2 h-5 w-5" />Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="dashboard" className="mt-6">
             <DashboardTab patientId={patient.id} />
@@ -284,6 +292,9 @@ function PatientTabs({ patient }: { patient: Patient }) {
           </TabsContent>
           <TabsContent value="history" className="mt-6">
             <HistoryTab patientId={patient.id} />
+          </TabsContent>
+          <TabsContent value="settings" className="mt-6">
+            <SettingsTab patient={patient} />
           </TabsContent>
         </CardContent>
       </Card>
@@ -533,3 +544,167 @@ function RequestDetailsDialog({ request, onOpenChange }: { request: ServiceReque
     );
 }
 
+const settingsSchema = z.object({
+  name: z.string().min(2, 'Name is required.'),
+  contact: z.string().min(10, 'Enter a valid contact number.'),
+  bloodType: z.string().optional(),
+  allergies: z.string().optional(),
+  primaryPhysician: z.string().optional(),
+  preferences: z.object({
+    maxDistance: z.number().min(1).max(50),
+    priceRange: z.object({
+      min: z.number(),
+      max: z.number(),
+    }).refine(data => data.min < data.max, {
+      message: "Min price must be less than max price",
+      path: ["min"],
+    }),
+    preferredSpecialties: z.array(z.string()),
+  }),
+});
+
+function SettingsTab({ patient }: { patient: Patient }) {
+    const { toast } = useToast();
+    const [isLoading, setIsLoading] = useState(false);
+
+    const form = useForm<z.infer<typeof settingsSchema>>({
+        resolver: zodResolver(settingsSchema),
+        defaultValues: {
+            name: patient.name,
+            contact: patient.contact,
+            bloodType: patient.bloodType,
+            allergies: patient.allergies?.join(', '),
+            primaryPhysician: patient.primaryPhysician,
+            preferences: {
+                maxDistance: patient.preferences?.maxDistance ?? 10,
+                priceRange: patient.preferences?.priceRange ?? { min: 500, max: 2000 },
+                preferredSpecialties: patient.preferences?.preferredSpecialties ?? [],
+            },
+        },
+    });
+    
+    const onSubmit = async (values: z.infer<typeof settingsSchema>) => {
+        setIsLoading(true);
+        try {
+            const patientRef = doc(db, 'patients', patient.id);
+            const updatedData = {
+                ...values,
+                allergies: values.allergies?.split(',').map(s => s.trim()).filter(Boolean) || [],
+            };
+            await updateDoc(patientRef, updatedData);
+            toast({ title: "Success!", description: "Your settings have been updated." });
+        } catch (error: any) {
+            console.error("Error updating settings:", error);
+            toast({ variant: 'destructive', title: "Error", description: "Could not update settings. " + error.message });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    const serviceTypes = ["general", "wound-care", "injection"];
+
+    return (
+        <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-12">
+                
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center"><UserCog className="mr-2 h-6 w-6 text-primary"/> Profile Information</CardTitle>
+                    <CardDescription>Manage your personal and medical details.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6 pt-6">
+                     <FormField control={form.control} name="name" render={({ field }) => (
+                       <FormItem><FormLabel>Full Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                     <FormField control={form.control} name="contact" render={({ field }) => (
+                       <FormItem><FormLabel>Contact Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                    <div className="grid md:grid-cols-3 gap-6">
+                        <FormField control={form.control} name="dob" render={({ field }) => (
+                           <FormItem><FormLabel>Date of Birth</FormLabel><FormControl><Input {...field} value={patient.dob} disabled /></FormControl><FormMessage /></FormItem>
+                        )} />
+                        <FormField control={form.control} name="bloodType" render={({ field }) => (
+                           <FormItem><FormLabel>Blood Type</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                         <FormField control={form.control} name="primaryPhysician" render={({ field }) => (
+                           <FormItem><FormLabel>Primary Physician</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                        )} />
+                    </div>
+                     <FormField control={form.control} name="allergies" render={({ field }) => (
+                       <FormItem><FormLabel>Allergies (comma-separated)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+                    )} />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center"><SlidersHorizontal className="mr-2 h-6 w-6 text-primary"/> Matching Preferences</CardTitle>
+                    <CardDescription>Customize how we find the best nurses for you.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-8 pt-6">
+                    <FormField control={form.control} name="preferences.maxDistance" render={({ field }) => (
+                       <FormItem>
+                         <FormLabel>Max Distance: {field.value} km</FormLabel>
+                         <FormControl><Slider min={1} max={50} step={1} value={[field.value]} onValueChange={(vals) => field.onChange(vals[0])} /></FormControl>
+                       </FormItem>
+                    )} />
+                    
+                    <Controller
+                        name="preferences.priceRange"
+                        control={form.control}
+                        render={({ field: { value, onChange } }) => (
+                            <FormItem>
+                                <FormLabel>Price Range (per hour): ₹{value.min} - ₹{value.max}</FormLabel>
+                                <FormControl>
+                                    <Slider
+                                        min={100} max={5000} step={100}
+                                        value={[value.min, value.max]}
+                                        onValueChange={([min, max]) => onChange({ min, max })}
+                                        minStepsBetweenThumbs={1}
+                                    />
+                                </FormControl>
+                            </FormItem>
+                        )}
+                    />
+
+                     <FormField control={form.control} name="preferences.preferredSpecialties" render={() => (
+                        <FormItem>
+                             <FormLabel>Preferred Services</FormLabel>
+                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-2">
+                             {serviceTypes.map((item) => (
+                                <FormField
+                                    key={item}
+                                    control={form.control}
+                                    name="preferences.preferredSpecialties"
+                                    render={({ field }) => (
+                                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                                        <FormControl>
+                                        <Checkbox
+                                            checked={field.value?.includes(item)}
+                                            onCheckedChange={(checked) => {
+                                            return checked
+                                                ? field.onChange([...field.value, item])
+                                                : field.onChange(field.value?.filter((value) => value !== item)
+                                                )
+                                            }}
+                                        />
+                                        </FormControl>
+                                        <FormLabel className="font-normal capitalize">{item.replace('-', ' ')}</FormLabel>
+                                    </FormItem>
+                                    )}
+                                />
+                                ))}
+                             </div>
+                             <FormMessage />
+                        </FormItem>
+                     )} />
+                  </CardContent>
+                </Card>
+
+                <Button type="submit" className="w-full md:w-auto" disabled={isLoading}>
+                    {isLoading ? <LoaderCircle className="animate-spin" /> : 'Save Settings'}
+                </Button>
+            </form>
+        </Form>
+    );
+}
