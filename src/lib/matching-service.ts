@@ -16,6 +16,9 @@ import { sanitizeDataForFirestore } from '@/lib/utils';
 export async function findAvailableNurses(): Promise<MatchedNurse[]> {
     const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
     const snapshot = await getDocs(nursesQuery);
+    if (snapshot.empty) {
+        return [];
+    }
     const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
 
     // Mock scoring and matching logic
@@ -33,16 +36,17 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
 
 
 /**
- * Creates a new service request document in the 'serviceRequests' collection.
+ * Creates a new service request and identifies the best-matched nurse.
  * This runs on the client.
  * @param patient - The patient creating the request.
  * @param requestInput - The data for the new service request.
- * @returns The ID of the newly created document.
+ * @returns The ID of the newly created document and the best matched nurse.
  */
-export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<string> {
+export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<{requestId: string; bestMatch: MatchedNurse | null}> {
   if (!patient) throw new Error("Patient is required to create a service request");
 
   const availableNurses = await findAvailableNurses();
+  const bestMatch = availableNurses.length > 0 ? availableNurses[0] : null;
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
@@ -61,12 +65,13 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     status: 'finding-nurses',
     matching: {
       availableNurses: availableNurses,
+      // The selected nurse will be added by offerServiceToNurse
     },
     payment: {
       platformFee: 5,
       platformFeePaid: false,
       nursePayment: {
-        amount: 0,
+        amount: bestMatch ? bestMatch.estimatedCost : 0,
         paid: false,
       },
     },
@@ -81,7 +86,7 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
   const sanitizedRequest = sanitizeDataForFirestore(newRequest);
 
   const docRef = await addDoc(collection(db, 'serviceRequests'), sanitizedRequest);
-  return docRef.id;
+  return { requestId: docRef.id, bestMatch: bestMatch };
 }
 
 
@@ -100,7 +105,7 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
     status: 'pending-response',
     'matching.selectedNurseId': nurseId,
     'matching.offerSentAt': Timestamp.now(),
-    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
+    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000), // 15 minutes
     'payment.nursePayment.amount': estimatedCost,
     updatedAt: Timestamp.now(),
   });
@@ -131,9 +136,11 @@ export async function handleNurseResponse(requestId: string, accepted: boolean):
       updatedAt: Timestamp.now(),
     });
   } else {
+    // If declined, we could implement logic to offer to the next best nurse.
+    // For now, we just mark it as declined.
     await updateDoc(requestRef, {
       status: 'declined', 
-      'matching.selectedNurseId': '', 
+      'matching.selectedNurseId': '', // Clear the selected nurse
       updatedAt: Timestamp.now(),
     });
   }

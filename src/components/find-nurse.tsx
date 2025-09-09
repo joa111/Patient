@@ -53,14 +53,12 @@ export function FindNurse() {
   const searchParams = useSearchParams();
   const patientId = searchParams.get('id');
 
-  const [step, setStep] = useState<'request' | 'selecting' | 'confirming' | 'waiting' | 'confirmed'>('request');
+  const [step, setStep] = useState<'request' | 'waiting' | 'confirmed' | 'failed'>('request');
   
   const [patient, setPatient] = useState<Patient | null>(null);
   const [serviceRequestInput, setServiceRequestInput] = useState<ServiceRequestInput | null>(null);
   const [serviceRequestId, setServiceRequestId] = useState<string | null>(null);
-  
-  const [availableNurses, setAvailableNurses] = useState<MatchedNurse[]>([]);
-  const [selectedNurse, setSelectedNurse] = useState<MatchedNurse | null>(null);
+  const [bestMatch, setBestMatch] = useState<MatchedNurse | null>(null);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,13 +116,13 @@ export function FindNurse() {
     fetchInitialData();
   }, [patientId]);
 
-  const findMatchingNurses = async (requestData: z.infer<typeof serviceRequestSchema>) => {
+  const findAndRequestBestMatch = async (requestData: z.infer<typeof serviceRequestSchema>) => {
       if (!patient || !serviceRequestInput?.patientLocation) {
         setError("Patient data or location is missing.");
         return;
       }
       setLoading(true);
-      setStep('selecting');
+      setStep('waiting');
 
       const fullRequestInput: ServiceRequestInput = {
         ...requestData,
@@ -133,61 +131,31 @@ export function FindNurse() {
       setServiceRequestInput(fullRequestInput);
 
       try {
-        const docId = await createServiceRequest(patient, fullRequestInput);
-        setServiceRequestId(docId);
+        const { requestId, bestMatch } = await createServiceRequest(patient, fullRequestInput);
         
-        const requestRef = doc(db, 'serviceRequests', docId);
-        const unsubscribe = onSnapshot(requestRef, (docSnap) => {
-            if (docSnap.exists()) {
-                const reqData = docSnap.data() as ServiceRequest;
-                if (reqData.matching.availableNurses && reqData.matching.availableNurses.length > 0) {
-                     setAvailableNurses(reqData.matching.availableNurses);
-                     setLoading(false);
-                     unsubscribe(); 
-                }
-            }
-        }, (err) => {
-            console.error("Error listening to service request:", err);
-            setError(`Failed to retrieve nurse matches: ${err.message}.`);
+        if (!bestMatch) {
+            setError("No available nurses found for your request at this time. Please try again later.");
+            setStep('failed');
             setLoading(false);
+            return;
+        }
+        
+        setServiceRequestId(requestId);
+        setBestMatch(bestMatch);
+
+        await offerServiceToNurse(requestId, bestMatch.nurseId, bestMatch.estimatedCost);
+
+        toast({
+            title: "Offer Sent!",
+            description: `We've sent your request to the best-matched nurse, ${bestMatch.fullName}. You will be notified of their response.`,
         });
 
       } catch (err: any) {
-        console.error("Error finding nurses:", err);
-        setError(`Failed to find matching nurses: ${err.message}. Please try again.`);
-        setStep('request'); 
+        console.error("Error in automatch process:", err);
+        setError(`Failed to send request: ${err.message}. Please try again.`);
+        setStep('failed'); 
         setLoading(false);
       }
-  };
-
-  const handleSelectNurse = (nurse: MatchedNurse) => {
-    setSelectedNurse(nurse);
-    setStep('confirming');
-  };
-
-  const handleConfirmBooking = async () => {
-    if (!selectedNurse || !serviceRequestId) {
-        setError("Something went wrong. No nurse or service request selected.");
-        return;
-    }
-    setLoading(true);
-    try {
-        await offerServiceToNurse(serviceRequestId, selectedNurse.nurseId, selectedNurse.estimatedCost);
-
-        console.log(`Sending offer to ${selectedNurse.fullName}...`);
-        toast({
-            title: "Offer Sent!",
-            description: `We've sent your request to ${selectedNurse.fullName}. You will be notified of their response.`,
-        });
-
-        setStep('waiting');
-
-    } catch (err: any) {
-        console.error("Error confirming booking:", err);
-        setError(`Could not send your request: ${err.message}. Please try again.`);
-    } finally {
-        setLoading(false);
-    }
   };
 
   // Real-time listener for the service request status changes
@@ -200,24 +168,25 @@ export function FindNurse() {
             if (data.status === 'confirmed') {
                 toast({
                     title: "Appointment Confirmed!",
-                    description: `${selectedNurse?.fullName || 'The nurse'} has accepted your request.`,
+                    description: `${bestMatch?.fullName || 'The nurse'} has accepted your request.`,
                     variant: 'default',
                 });
                 setStep('confirmed');
+                setLoading(false);
             } else if (data.status === 'cancelled' || data.status === 'declined') {
                  toast({
                     variant: "destructive",
                     title: "Request Declined",
-                    description: `Unfortunately, the request was not accepted. Please try another nurse.`,
+                    description: `Unfortunately, your request was not accepted. Please try again.`,
                 });
-                setAvailableNurses([]); // Clear old list
-                setStep('selecting'); // Go back to selection
+                setStep('failed');
+                setLoading(false);
             }
         }
     });
 
     return () => unsubscribe();
-  }, [serviceRequestId, selectedNurse, toast]);
+  }, [serviceRequestId, bestMatch, toast]);
 
 
   const renderContent = () => {
@@ -234,7 +203,7 @@ export function FindNurse() {
           <Card className="border-0 shadow-none">
             <CardContent className="p-0">
                 <Form {...form}>
-                <form onSubmit={form.handleSubmit(findMatchingNurses)} className="space-y-8">
+                <form onSubmit={form.handleSubmit(findAndRequestBestMatch)} className="space-y-8">
                     <FormField control={form.control} name="serviceType" render={({ field }) => (
                     <FormItem>
                         <FormLabel className="text-base">What service do you need?</FormLabel>
@@ -322,7 +291,7 @@ export function FindNurse() {
                     </FormItem>
                     )} />
                     <Button type="submit" className="w-full text-lg py-7" disabled={loading}>
-                    {loading ? <LoaderCircle className="animate-spin" /> : <> <Search className="mr-2 h-5 w-5"/>Find Matching Nurses</>}
+                    {loading ? <LoaderCircle className="animate-spin" /> : <> <Search className="mr-2 h-5 w-5"/>Find Best Match</>}
                     </Button>
                 </form>
                 </Form>
@@ -330,91 +299,12 @@ export function FindNurse() {
           </Card>
         );
       
-      case 'selecting':
-        return (
-          <div>
-            <h3 className="font-headline text-xl font-semibold mb-4">Select a Nurse</h3>
-            {loading ? <div className="flex justify-center items-center h-48"><LoaderCircle className="h-8 w-8 animate-spin text-primary" /><p className="ml-4">Finding best matches for you...</p></div> : availableNurses.length > 0 ? (
-                 <div className="space-y-4">
-                    {availableNurses.map((nurse) => (
-                        <Card key={nurse.nurseId} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleSelectNurse(nurse)}>
-                            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
-                                <Avatar className="h-16 w-16 border-2 border-primary/20">
-                                    <AvatarImage src={nurse.avatarUrl} alt={nurse.fullName} data-ai-hint="person nurse" />
-                                    <AvatarFallback>{nurse.fullName ? nurse.fullName.charAt(0) : 'N'}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-grow">
-                                    <p className="font-bold text-lg text-primary">{nurse.fullName}</p>
-                                    <p className="flex items-center text-sm text-muted-foreground"><Briefcase className="mr-2 h-4 w-4" /> {nurse.district}</p>
-                                    <div className="flex items-center text-sm text-muted-foreground mt-1 space-x-4">
-                                        <p className="flex items-center"><MapPin className="mr-2 h-4 w-4" /> {nurse.distance} km away</p>
-                                        <p className="flex items-center"><Star className="mr-2 h-4 w-4 text-amber-400" /> {nurse.rating} / 5</p>
-                                    </div>
-                                </div>
-                                <div className="w-full sm:w-auto text-right flex flex-col items-end gap-2">
-                                    <p className="text-xl font-semibold">₹{nurse.estimatedCost.toFixed(2)}<span className="text-sm font-normal text-muted-foreground"> (est.)</span></p>
-                                    <div className="flex items-center gap-2">
-                                      <p className="text-sm font-medium text-muted-foreground">Match Score</p>
-                                      <Progress value={nurse.matchScore} className="w-24 h-2" />
-                                      <span className="font-semibold text-primary">{nurse.matchScore}%</span>
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))}
-                 </div>
-            ) : <p className="text-center text-muted-foreground py-12">No available nurses found for your request. Please try adjusting your criteria.</p>}
-             <Button variant="outline" className="mt-6" onClick={() => setStep('request')}>Back to Request Details</Button>
-          </div>
-        );
-
-      case 'confirming':
-         if (!selectedNurse || !serviceRequestInput) return <p>Error: No nurse or service request details selected.</p>;
-         return (
-            <div>
-                <h3 className="font-headline text-xl font-semibold mb-4">Confirm Booking</h3>
-                <Card className="shadow-lg">
-                    <CardHeader>
-                        <div className="flex items-center space-x-4">
-                             <Avatar className="h-20 w-20 border-2 border-primary">
-                                <AvatarImage src={selectedNurse.avatarUrl} alt={selectedNurse.fullName} />
-                                <AvatarFallback>{selectedNurse.fullName ? selectedNurse.fullName.charAt(0) : 'N'}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                                <CardTitle className="text-2xl text-primary">{selectedNurse.fullName}</CardTitle>
-                                <CardDescription>{selectedNurse.district}</CardDescription>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4 pt-2">
-                        <div className="border-t border-dashed pt-4">
-                            <p><strong>Service:</strong> {serviceRequestInput.serviceType}</p>
-                            <p><strong>When:</strong> {format(serviceRequestInput.scheduledDateTime, 'PPP p')}</p>
-                            <p><strong>Duration:</strong> {serviceRequestInput.duration} hour(s)</p>
-                        </div>
-                        <div className="text-right border-t border-dashed pt-4">
-                            <p className="text-sm text-muted-foreground">Estimated Total</p>
-                            <p className="text-3xl font-bold text-primary">₹{selectedNurse.estimatedCost.toFixed(2)}</p>
-                            <p className="text-xs text-muted-foreground mt-1">You will not be charged until the service is confirmed by the nurse.</p>
-                        </div>
-                        
-                        <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                           <Button variant="outline" className="w-full" onClick={() => setStep('selecting')}>Back to List</Button>
-                           <Button className="w-full" onClick={handleConfirmBooking} disabled={loading}>
-                               {loading ? <LoaderCircle className="animate-spin" /> : 'Send Request to Nurse'} <ArrowRight className="ml-2 h-5 w-5"/>
-                           </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-         );
-
       case 'waiting':
         return (
             <div className="text-center py-12 flex flex-col items-center">
                 <LoaderCircle className="h-12 w-12 text-primary animate-spin mx-auto"/>
-                <h3 className="font-headline text-2xl font-semibold mt-6">Waiting for Confirmation</h3>
-                <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {selectedNurse?.fullName}. We'll notify you here as soon as they respond.</p>
+                <h3 className="font-headline text-2xl font-semibold mt-6">Finding & Contacting Best Match</h3>
+                <p className="text-muted-foreground mt-2 max-w-md">We've sent your request to {bestMatch?.fullName || 'the best available nurse'}. We'll notify you here as soon as they respond.</p>
                 <Progress value={80} className="w-full max-w-sm mx-auto mt-8" />
                  <p className="text-sm text-muted-foreground mt-2">The request will expire in 15 minutes.</p>
             </div>
@@ -425,12 +315,24 @@ export function FindNurse() {
              <div className="text-center py-12 flex flex-col items-center">
                 <CheckCircle className="h-16 w-16 text-green-500 mx-auto"/>
                 <h3 className="font-headline text-3xl font-semibold mt-6">Booking Confirmed!</h3>
-                <p className="text-muted-foreground mt-2">{selectedNurse?.fullName} is confirmed for your appointment.</p>
+                <p className="text-muted-foreground mt-2">{bestMatch?.fullName} is confirmed for your appointment.</p>
                 <Button className="mt-8" onClick={() => window.location.reload()}>
                     View in Dashboard
                 </Button>
             </div>
-        )
+        );
+        
+      case 'failed':
+         return (
+            <div className="text-center py-12 flex flex-col items-center">
+                <AlertTriangle className="h-16 w-16 text-destructive mx-auto"/>
+                <h3 className="font-headline text-3xl font-semibold mt-6">Request Failed</h3>
+                <p className="text-muted-foreground mt-2 max-w-md">{error || "Something went wrong. Please try again."}</p>
+                <Button variant="outline" className="mt-8" onClick={() => { setError(null); setStep('request'); }}>
+                    Try Again
+                </Button>
+            </div>
+        );
     }
   };
   

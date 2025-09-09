@@ -55,12 +55,13 @@ const sendNotificationFlow = ai.defineFlow(
       const requestData = requestSnap.data();
       
       // Determine recipient collection (patient or nurse)
+      // For 'new_offer', we notify the nurse. For others, the patient.
       const isPatientNotification = ['confirmation', 'en_route', 'request_confirmed', 'request_declined'].includes(input.type);
       const userRef = doc(db, isPatientNotification ? 'patients' : 'nurses', input.userId);
       const userSnap = await getDoc(userRef);
       
       if (!userSnap.exists()) {
-        throw new Error(`User with ID ${input.userId} not found.`);
+        throw new Error(`User with ID ${input.userId} not found in ${isPatientNotification ? 'patients' : 'nurses'} collection.`);
       }
       
       const user = userSnap.data();
@@ -96,7 +97,7 @@ const sendNotificationFlow = ai.defineFlow(
       // *****************************************************************
       console.log('------------------------------------');
       console.log('SENDING PUSH NOTIFICATION');
-      console.log('To:', user.email || user.contact); // Or a device token
+      console.log('To:', user.email); // Or a device token
       console.log('Title:', title);
       console.log('Body:', body);
       console.log('------------------------------------');
@@ -121,5 +122,3 @@ const sendNotificationFlow = ai.defineFlow(
     }
   }
 );
-
-    
