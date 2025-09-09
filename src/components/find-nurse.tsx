@@ -181,6 +181,17 @@ export function FindNurse() {
                 });
                 setStep('failed');
                 setLoading(false);
+            } else if (data.status === 'pending-response' && data.matching.responseDeadline) {
+                const deadline = data.matching.responseDeadline.toDate();
+                if (new Date() > deadline) {
+                    toast({
+                        variant: "destructive",
+                        title: "Request Expired",
+                        description: "The nurse did not respond in time. Please try making a new request.",
+                    });
+                    setStep('failed');
+                    setLoading(false);
+                }
             }
         }
     });
@@ -193,7 +204,7 @@ export function FindNurse() {
     if (loading && step === 'request') {
        return <div className="flex justify-center items-center h-48"><LoaderCircle className="h-8 w-8 animate-spin text-primary" /><p className="ml-4">Loading your information...</p></div>;
     }
-    if (error) {
+    if (error && step !== 'failed') {
         return <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Error</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
     }
 
@@ -342,3 +353,5 @@ export function FindNurse() {
     </div>
   );
 }
+
+    
