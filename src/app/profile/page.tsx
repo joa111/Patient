@@ -440,18 +440,18 @@ function RequestCard({ request, onSelect }: { request: ServiceRequest, onSelect:
 
     return (
         <Card className="hover:shadow-md transition-shadow border rounded-lg overflow-hidden">
-            <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
+            <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4 flex-1 min-w-[200px]">
                      <div className="flex flex-col items-center justify-center bg-muted/50 p-3 rounded-md h-16 w-16">
                          <span className="font-bold text-primary text-xl">{scheduledDate ? format(scheduledDate, 'd') : '--'}</span>
                          <span className="text-xs text-muted-foreground">{scheduledDate ? format(scheduledDate, 'MMM') : 'N/A'}</span>
                      </div>
-                     <div>
-                        <p className="font-semibold capitalize">{request.serviceDetails.type.replace('-', ' ')}</p>
+                     <div className="flex-1">
+                        <p className="font-semibold capitalize truncate">{request.serviceDetails.type.replace('-', ' ')}</p>
                         <p className="text-sm text-muted-foreground">{scheduledTime}</p>
                      </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-shrink-0">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${statusColor}`}>{request.status}</span>
                     <Button variant="outline" size="sm" onClick={onSelect}>
                         <Info className="mr-2 h-4 w-4" />Details
