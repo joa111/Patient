@@ -5,12 +5,12 @@ import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "firebase/fir
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyB7gobp_RyD05hnVmFBdtX-pcjVRZrBUJ4",
-  authDomain: "order-63780.firebaseapp.com",
-  projectId: "order-63780",
-  storageBucket: "order-63780.appspot.com",
-  messagingSenderId: "57020655857",
-  appId: "1:57020655857:web:5aa6af025ca168e63ee150"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
 
