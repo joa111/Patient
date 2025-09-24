@@ -42,7 +42,6 @@ service cloud.firestore {
       // Patients can get any single nurse's profile
       allow get: if isPatient();
       
-      // Patients can list available nurses
       allow list: if isPatient();
       
       // During registration, allow creation with pending status
