@@ -117,46 +117,51 @@ export function FindNurse() {
     fetchInitialData();
   }, [patientId]);
 
-  const findAndRequestBestMatch = async (requestData: z.infer<typeof serviceRequestSchema>) => {
-      if (!patient || !serviceRequestInput?.patientLocation) {
-        setError("Patient data or location is missing.");
+const findAndRequestBestMatch = async (requestData: z.infer<typeof serviceRequestSchema>) => {
+    if (!patient || !serviceRequestInput?.patientLocation) {
+      setError("Patient data or location is missing.");
+      return;
+    }
+    setLoading(true);
+    setStep('waiting');
+
+    const fullRequestInput: ServiceRequestInput = {
+      ...requestData,
+      patientLocation: serviceRequestInput.patientLocation,
+    };
+    setServiceRequestInput(fullRequestInput);
+
+    try {
+      // --- FIX 1: Correctly get the 'selectedNurses' array ---
+      const { requestId, selectedNurses } = await createServiceRequest(patient, fullRequestInput);
+
+      // --- FIX 2: Check if the array is empty and get the best match from it ---
+      if (!selectedNurses || selectedNurses.length === 0) {
+        setError("No available nurses found for your request at this time. Please try again later.");
+        setStep('failed');
+        setLoading(false);
         return;
       }
-      setLoading(true);
-      setStep('waiting');
+      
+      const bestMatch = selectedNurses[0]; // Get the top nurse from the list
+      setServiceRequestId(requestId);
+      setBestMatch(bestMatch);
 
-      const fullRequestInput: ServiceRequestInput = {
-        ...requestData,
-        patientLocation: serviceRequestInput.patientLocation
-      };
-      setServiceRequestInput(fullRequestInput);
+      // --- FIX 3: Removed the redundant offerServiceToNurse call ---
+      // The backend createServiceRequest function already handles sending offers.
 
-      try {
-        const { requestId, bestMatch } = await createServiceRequest(patient, fullRequestInput);
-        
-        if (!bestMatch) {
-            setError("No available nurses found for your request at this time. Please try again later.");
-            setStep('failed');
-            setLoading(false);
-            return;
-        }
-        
-        setServiceRequestId(requestId);
-        setBestMatch(bestMatch);
+      toast({
+        title: "Request Sent!",
+        description: `We've sent your request to the best available nurses. You will be notified shortly.`,
+      });
 
-        await offerServiceToNurse(requestId, bestMatch.nurseId, bestMatch.estimatedCost);
-
-        toast({
-            title: "Offer Sent!",
-            description: `We've sent your request to the best-matched nurse, ${bestMatch.fullName}. You will be notified of their response.`,
-        });
-
-      } catch (err: any) {
-        console.error("Error in automatch process:", err);
-        setError(`Failed to send request: ${err.message}. Please try again.`);
-        setStep('failed'); 
-        setLoading(false);
-      }
+    } catch (err: any) {
+      // This block is your best friend for debugging! Always check the browser console for this error.
+      console.error("Error creating service request:", err);
+      setError(`Failed to send request: ${err.message}. Please try again.`);
+      setStep('failed');
+      setLoading(false);
+    }
   };
 
   // Real-time listener for the service request status changes

@@ -2,7 +2,8 @@
  * @fileOverview Firestore functions for managing service requests, running on the client-side.
  */
 
-import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, Timestamp, GeoPoint, query, where, getDocs, getDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { getDistance } from 'geolib';
 import { db } from '@/lib/firebase';
 import type { ServiceRequestInput, Nurse, Patient, ServiceRequest, MatchedNurse } from '@/types/service-request';
 import { sanitizeDataForFirestore } from '@/lib/utils';
@@ -13,25 +14,119 @@ import { sanitizeDataForFirestore } from '@/lib/utils';
  * This runs on the client-side.
  * @returns A promise that resolves to an array of matched nurses.
  */
-export async function findAvailableNurses(): Promise<MatchedNurse[]> {
-    const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
-    const snapshot = await getDocs(nursesQuery);
-    if (snapshot.empty) {
-        return [];
-    }
-    const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+export async function findAvailableNurses(
+  patientLocation?: { latitude: number; longitude: number },
+  maxDistance?: number,
+  priceRange?: { min: number; max: number },
+  serviceType?: string,
+  preferredSpecialties?: string[]
+): Promise<MatchedNurse[]> {
+  console.log('🔍 Finding nurses with params:', {
+    patientLocation,
+    maxDistance,
+    priceRange,
+    serviceType,
+    preferredSpecialties
+  });
 
-    // Mock scoring and matching logic
-    return nurses.map(nurse => ({
-        nurseId: nurse.id,
-        fullName: nurse.fullName,
-        avatarUrl: `https://placehold.co/256x256.png`, // Placeholder, assuming no avatar in nurse doc
-        district: nurse.district,
-        matchScore: Math.floor(Math.random() * (98 - 85 + 1)) + 85, // Random score between 85-98
-        estimatedCost: (nurse.rates?.hourlyRate || 0) * 1.5,
-        distance: Math.round(Math.random() * 10 * 10) / 10, // Random distance 0-10km
-        rating: nurse.stats.rating,
-    })).sort((a, b) => b.matchScore - a.matchScore);
+  const nursesQuery = query(collection(db, 'nurses'), where("availability.isOnline", "==", true));
+  const snapshot = await getDocs(nursesQuery);
+  
+  console.log(`📊 Found ${snapshot.size} online nurses in database`);
+  
+  if (snapshot.empty) {
+    console.log('❌ No online nurses found');
+    return [];
+  }
+  
+  const nurses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Nurse));
+  console.log('👥 All online nurses:', nurses);
+
+  // Strict filtering
+  const filteredNurses = nurses.filter(nurse => {
+    console.log(`Checking nurse ${nurse.fullName}:`, {
+      hasLocation: !!nurse.lastLocation,
+      specialties: nurse.rates?.specialties,
+      hourlyRate: nurse.rates?.hourlyRate
+    });
+    
+    // Distance filter
+    let distance = 0;
+    if (patientLocation && nurse.lastLocation) {
+      distance = getDistance(
+        { latitude: patientLocation.latitude, longitude: patientLocation.longitude },
+        { latitude: nurse.lastLocation.latitude, longitude: nurse.lastLocation.longitude }
+      ) / 1000;
+      console.log(`  Distance: ${distance}km, Max: ${maxDistance}km`);
+      if (maxDistance !== undefined && distance > maxDistance) {
+        console.log(`  ❌ Rejected: Too far`);
+        return false;
+      }
+    }
+    
+    // Price filter
+    const rate = nurse.rates?.hourlyRate || 0;
+    if (priceRange && (rate < priceRange.min || rate > priceRange.max)) {
+      console.log(`  ❌ Rejected: Price ${rate} outside range ${priceRange.min}-${priceRange.max}`);
+      return false;
+    }
+    
+    // Service type filter (use specialties under rates only)
+// Service type filter (checks the top-level 'services' array)
+if (serviceType && (!nurse.services || !nurse.services.includes(serviceType))) {
+  console.log(`  ❌ Rejected: Doesn't have specialty ${serviceType}`);
+  return false;
+}
+    
+    console.log(`  ✅ Accepted`);
+    return true;
+  });
+
+  console.log(`✅ Final filtered nurses: ${filteredNurses.length}`);
+  // Weighted scoring
+  return filteredNurses.map(nurse => {
+    // Distance
+    let distance = 0;
+    if (patientLocation && nurse.lastLocation) {
+      distance = getDistance(
+        { latitude: patientLocation.latitude, longitude: patientLocation.longitude },
+        { latitude: nurse.lastLocation.latitude, longitude: nurse.lastLocation.longitude }
+      ) / 1000;
+    }
+    // Rating
+    const rating = nurse.stats?.rating || 0;
+    // Price
+    const rate = nurse.rates?.hourlyRate || 0;
+// Specialty bonus
+let specialtyBonus = 0;
+if (serviceType && nurse.services && nurse.services.includes(serviceType)) {
+  specialtyBonus = 1;
+}
+
+    // Scoring
+    // Distance: 40% (closer = higher score)
+    // Rating: 30% (higher = better)
+    // Price: 20% (lower = better)
+    // Specialty: 10% (bonus)
+    // Normalize values
+    const maxDistanceScore = maxDistance || 10;
+    const distanceScore = patientLocation && nurse.lastLocation ? (1 - Math.min(distance / maxDistanceScore, 1)) * 40 : 0;
+    const ratingScore = (rating / 5) * 30;
+    const priceScore = priceRange ? (1 - Math.min((rate - priceRange.min) / (priceRange.max - priceRange.min || 1), 1)) * 20 : 0;
+    const specialtyScore = specialtyBonus * 10;
+    const matchScore = Math.round(distanceScore + ratingScore + priceScore + specialtyScore);
+
+    return {
+      nurseId: nurse.id,
+      fullName: nurse.fullName,
+      avatarUrl: nurse.avatarUrl || `https://placehold.co/256x256.png`,
+      district: nurse.district,
+      matchScore,
+      estimatedCost: rate * 1.5,
+      distance: Math.round(distance * 10) / 10,
+      rating,
+    };
+  }).sort((a, b) => b.matchScore - a.matchScore);
 }
 
 
@@ -42,11 +137,19 @@ export async function findAvailableNurses(): Promise<MatchedNurse[]> {
  * @param requestInput - The data for the new service request.
  * @returns The ID of the newly created document and the best matched nurse.
  */
-export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<{requestId: string; bestMatch: MatchedNurse | null}> {
+export async function createServiceRequest(patient: Patient, requestInput: ServiceRequestInput): Promise<{requestId: string; selectedNurses: MatchedNurse[]}> {
   if (!patient) throw new Error("Patient is required to create a service request");
 
-  const availableNurses = await findAvailableNurses();
-  const bestMatch = availableNurses.length > 0 ? availableNurses[0] : null;
+  const availableNurses = await findAvailableNurses(
+    requestInput.patientLocation,
+    patient.preferences?.maxDistance,
+    patient.preferences?.priceRange,
+    requestInput.serviceType,
+    patient.preferences?.preferredSpecialties
+  );
+  
+  // Select top 4 best matched nurses
+  const selectedNurses = availableNurses.slice(0, 4);
 
   const newRequest: Omit<ServiceRequest, 'id'> = {
     patientId: patient.id,
@@ -65,48 +168,46 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     status: 'finding-nurses',
     matching: {
       availableNurses: availableNurses,
-      // The selected nurse will be added by offerServiceToNurse
+      pendingNurses: [], // Initialize as empty array
     },
     payment: {
       platformFee: 5,
       platformFeePaid: false,
       nursePayment: {
-        amount: bestMatch ? bestMatch.estimatedCost : 0,
+        amount: selectedNurses.length > 0 ? selectedNurses[0].estimatedCost : 0,
         paid: false,
       },
     },
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
   };
-
-  // 1. Debugging: Log the object to see what's being sent.
   console.log('Attempting to create service request with this data:', newRequest);
 
-  // 2. Sanitization: Remove any undefined fields before sending to Firestore.
   const sanitizedRequest = sanitizeDataForFirestore(newRequest);
 
   const docRef = await addDoc(collection(db, 'serviceRequests'), sanitizedRequest);
-  return { requestId: docRef.id, bestMatch: bestMatch };
+  
+  // Send offers to all selected nurses
+  for (const nurse of selectedNurses) {
+    await offerServiceToNurse(docRef.id, nurse.nurseId, nurse.estimatedCost);
+  }
+
+  return { requestId: docRef.id, selectedNurses };
 }
 
 
 /**
  * Updates a service request to send an offer to a specific nurse.
- * This runs on the client.
- * @param requestId - The ID of the service request.
- * @param nurseId - The ID of the nurse to receive the offer.
- * @param estimatedCost - The estimated cost of the service.
- * @returns A promise that resolves when the update is complete.
  */
 export async function offerServiceToNurse(requestId: string, nurseId: string, estimatedCost: number): Promise<void> {
   const requestRef = doc(db, 'serviceRequests', requestId);
   
   await updateDoc(requestRef, {
     status: 'pending-response',
-    'matching.selectedNurseId': nurseId,
+    'matching.pendingNurses': arrayUnion(nurseId),
+    'matching.selectedNurseIds': arrayUnion(nurseId),
     'matching.offerSentAt': Timestamp.now(),
-    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000), // 15 minutes
-    'payment.nursePayment.amount': estimatedCost,
+    'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
     updatedAt: Timestamp.now(),
   });
   
@@ -115,65 +216,51 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
 
 /**
  * Cancels a service request.
- * This runs on the client.
- * @param requestId - The ID of the service request to cancel.
- * @returns A promise that resolves when the update is complete.
  */
 export async function cancelServiceRequest(requestId: string): Promise<void> {
-    const requestRef = doc(db, 'serviceRequests', requestId);
-    await updateDoc(requestRef, {
-        status: 'cancelled',
-        updatedAt: Timestamp.now(),
-    });
-    console.log(`Service request ${requestId} has been cancelled by the user.`);
+  const requestRef = doc(db, 'serviceRequests', requestId);
+  await updateDoc(requestRef, {
+    status: 'cancelled',
+    updatedAt: Timestamp.now(),
+  });
+  console.log(`Service request ${requestId} has been cancelled by the user.`);
 }
 
 /**
  * Marks a service request as completed by the patient.
- * This runs on the client.
- * @param requestId - The ID of the service request to complete.
  */
 export async function completeServiceRequest(requestId: string): Promise<void> {
-    const requestRef = doc(db, 'serviceRequests', requestId);
-    await updateDoc(requestRef, {
-        status: 'completed',
-        updatedAt: Timestamp.now(),
-    });
-    console.log(`Service request ${requestId} has been marked as completed.`);
+  const requestRef = doc(db, 'serviceRequests', requestId);
+  await updateDoc(requestRef, {
+    status: 'completed',
+    updatedAt: Timestamp.now(),
+  });
+  console.log(`Service request ${requestId} has been marked as completed.`);
 }
 
 /**
  * Submits a rating and review for a completed service request.
- * This runs on the client.
- * @param requestId - The ID of the service request.
- * @param rating - A rating from 1 to 5.
- * @param review - A text review.
  */
 export async function submitReview(requestId: string, rating: number, review: string): Promise<void> {
-    const requestRef = doc(db, 'serviceRequests', requestId);
-    const requestSnap = await getDoc(requestRef);
-    if (!requestSnap.exists()) {
-        throw new Error("Service request not found.");
-    }
-    // In a real app, we would also update the nurse's average rating in their profile document.
-    // This would likely be done in a Cloud Function for consistency and to prevent data tampering.
-    await updateDoc(requestRef, {
-        'review.rating': rating,
-        'review.comment': review,
-        'review.submittedAt': Timestamp.now(),
-        updatedAt: Timestamp.now(),
-    });
-    console.log(`Review submitted for request ${requestId}.`);
+  const requestRef = doc(db, 'serviceRequests', requestId);
+  const requestSnap = await getDoc(requestRef);
+  if (!requestSnap.exists()) {
+    throw new Error("Service request not found.");
+  }
+  await updateDoc(requestRef, {
+    'review.rating': rating,
+    'review.comment': review,
+    'review.submittedAt': Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  });
+  console.log(`Review submitted for request ${requestId}.`);
 }
 
 
 /**
  * Handles the response from a nurse (accepted or declined).
- * This function would typically be called by the Nurse's application backend.
- * @param requestId - The ID of the service request.
- * @param accepted - Boolean indicating if the nurse accepted the request.
  */
-export async function handleNurseResponse(requestId: string, accepted: boolean): Promise<void> {
+export async function handleNurseResponse(requestId: string, nurseId: string, accepted: boolean): Promise<void> {
   const requestRef = doc(db, 'serviceRequests', requestId);
   const requestSnap = await getDoc(requestRef);
   
@@ -182,19 +269,28 @@ export async function handleNurseResponse(requestId: string, accepted: boolean):
   }
   const requestData = requestSnap.data() as ServiceRequest;
 
-
   if (accepted) {
     await updateDoc(requestRef, {
       status: 'confirmed',
+      'matching.selectedNurseId': nurseId,
+      'matching.pendingNurses': [], // Clear all pending nurses
       updatedAt: Timestamp.now(),
     });
   } else {
-    // If declined, we could implement logic to offer to the next best nurse.
-    // For now, we just mark it as declined.
     await updateDoc(requestRef, {
-      status: 'declined', 
-      'matching.selectedNurseId': '', // Clear the selected nurse
+      'matching.pendingNurses': arrayRemove(nurseId),
+      'matching.selectedNurseIds': arrayRemove(nurseId),
       updatedAt: Timestamp.now(),
     });
+    
+    const updatedDoc = await getDoc(requestRef);
+    const updatedData = updatedDoc.data() as ServiceRequest;
+    
+    if (!updatedData.matching.pendingNurses || updatedData.matching.pendingNurses.length === 0) {
+      await updateDoc(requestRef, {
+        status: 'declined',
+        updatedAt: Timestamp.now(),
+      });
+    }
   }
 }

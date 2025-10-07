@@ -11,7 +11,7 @@ export interface Patient {
   primaryPhysician: string;
   avatarUrl: string;
   preferences?: {
-    maxDistance: number; // default 10km
+    maxDistance: number; 
     priceRange: { min: number; max: number };
     preferredSpecialties: string[];
   };
@@ -27,6 +27,8 @@ export interface Nurse {
   licenseState: string;
   licenseExpiryDate: string;
   services: string[];
+  lastLocation?: { latitude: number; longitude: number };
+  avatarUrl?: string;
   profileStatus: 'pending_verification' | 'verified' | 'rejected';
   createdAt: Timestamp;
   availability: {
@@ -54,7 +56,6 @@ export interface Nurse {
   };
 }
 
-
 export interface ServiceRequest {
   id: string;
   patientId: string;
@@ -70,10 +71,19 @@ export interface ServiceRequest {
     specialRequirements?: string;
     isUrgent: boolean;
   };
-  status: 'creating' | 'finding-nurses' | 'pending-response' | 'confirmed' | 'in-progress' | 'completed' | 'cancelled' | 'declined';
+  status: 
+    | 'creating' 
+    | 'finding-nurses' 
+    | 'pending-response' 
+    | 'confirmed' 
+    | 'in-progress' 
+    | 'completed' 
+    | 'cancelled' 
+    | 'declined';
   matching: {
     availableNurses: MatchedNurse[];
     selectedNurseId?: string;
+    pendingNurses: string[];
     offerSentAt?: Timestamp;
     responseDeadline?: Timestamp;
   };
@@ -96,22 +106,22 @@ export interface ServiceRequest {
 
 // Interface for the form/state object before it becomes a Firestore document
 export interface ServiceRequestInput {
-    serviceType: string;
-    scheduledDateTime: Date;
-    duration: number;
-    specialRequirements?: string;
-    isUrgent: boolean;
-    patientLocation: { latitude: number; longitude: number };
+  serviceType: string;
+  scheduledDateTime: Date;
+  duration: number;
+  specialRequirements?: string;
+  isUrgent: boolean;
+  patientLocation: { latitude: number; longitude: number };
 }
 
 // Interface for a nurse after being matched
 export interface MatchedNurse {
-    nurseId: string;
-    fullName: string;
-    avatarUrl?: string;
-    district: string;
-    matchScore: number;
-    estimatedCost: number;
-    distance: number;
-    rating: number;
+  nurseId: string;
+  fullName: string;
+  avatarUrl?: string;
+  district: string;
+  matchScore: number;
+  estimatedCost: number;
+  distance: number;
+  rating: number;
 }
