@@ -83,6 +83,7 @@ export interface ServiceRequest {
   matching: {
     availableNurses: MatchedNurse[];
     selectedNurseId?: string;
+    selectedNurseIds?: string[]; // FIX: Added this optional field for tracking all nurses who received offers
     pendingNurses: string[];
     offerSentAt?: Timestamp;
     responseDeadline?: Timestamp;

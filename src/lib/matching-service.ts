@@ -71,18 +71,39 @@ export async function findAvailableNurses(
       return false;
     }
     
-    // Service type filter (use specialties under rates only)
-// Service type filter (checks the top-level 'services' array)
-if (serviceType && (!nurse.services || !nurse.services.includes(serviceType))) {
-  console.log(`  ❌ Rejected: Doesn't have specialty ${serviceType}`);
-  return false;
-}
+    // Service type filter (checks the top-level 'services' array)
+    if (serviceType && nurse.services) {
+      // Debug: Log what we're checking
+      console.log(`  🔍 Checking services array:`, nurse.services);
+      console.log(`  🔍 Looking for serviceType:`, serviceType);
+      
+      // Convert kebab-case to Title Case for comparison
+      // e.g., 'wound-care' -> 'Wound Care', 'general' -> 'General'
+      const formattedServiceType = serviceType
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      console.log(`  🔍 Formatted as:`, formattedServiceType);
+      
+      // Check both formatted and lowercase versions
+      const hasService = nurse.services.includes(formattedServiceType) || 
+                        nurse.services.includes(serviceType);
+      
+      console.log(`  🔍 Match found?`, hasService);
+      
+      if (!hasService) {
+        console.log(`  ❌ Rejected: Doesn't have service "${formattedServiceType}" or "${serviceType}"`);
+        return false;
+      }
+    }
     
     console.log(`  ✅ Accepted`);
     return true;
   });
 
   console.log(`✅ Final filtered nurses: ${filteredNurses.length}`);
+  
   // Weighted scoring
   return filteredNurses.map(nurse => {
     // Distance
@@ -97,11 +118,18 @@ if (serviceType && (!nurse.services || !nurse.services.includes(serviceType))) {
     const rating = nurse.stats?.rating || 0;
     // Price
     const rate = nurse.rates?.hourlyRate || 0;
-// Specialty bonus
-let specialtyBonus = 0;
-if (serviceType && nurse.services && nurse.services.includes(serviceType)) {
-  specialtyBonus = 1;
-}
+    // Specialty bonus
+    let specialtyBonus = 0;
+    if (serviceType && nurse.services) {
+      const formattedServiceType = serviceType
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      if (nurse.services.includes(formattedServiceType) || nurse.services.includes(serviceType)) {
+        specialtyBonus = 1;
+      }
+    }
 
     // Scoring
     // Distance: 40% (closer = higher score)
@@ -168,7 +196,8 @@ export async function createServiceRequest(patient: Patient, requestInput: Servi
     status: 'finding-nurses',
     matching: {
       availableNurses: availableNurses,
-      pendingNurses: [], // Initialize as empty array
+      pendingNurses: [], // Will be populated when offers are sent
+      selectedNurseIds: [], // FIX: Initialize this field
     },
     payment: {
       platformFee: 5,
@@ -205,6 +234,7 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
   await updateDoc(requestRef, {
     status: 'pending-response',
     'matching.pendingNurses': arrayUnion(nurseId),
+    // Add this so nurse dashboards which use `array-contains` will match
     'matching.selectedNurseIds': arrayUnion(nurseId),
     'matching.offerSentAt': Timestamp.now(),
     'matching.responseDeadline': Timestamp.fromMillis(Date.now() + 15 * 60 * 1000),
@@ -213,6 +243,7 @@ export async function offerServiceToNurse(requestId: string, nurseId: string, es
   
   console.log(`Offer sent to nurse ${nurseId} for request ${requestId}`);
 }
+
 
 /**
  * Cancels a service request.
@@ -279,7 +310,6 @@ export async function handleNurseResponse(requestId: string, nurseId: string, ac
   } else {
     await updateDoc(requestRef, {
       'matching.pendingNurses': arrayRemove(nurseId),
-      'matching.selectedNurseIds': arrayRemove(nurseId),
       updatedAt: Timestamp.now(),
     });
     
